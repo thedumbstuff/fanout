@@ -40,6 +40,7 @@ import { cleanUserAgent } from './useragent.js';
  * @property {() => void} changed                     send that state soon
  * @property {(channel: string, ...args: any[]) => void} send
  * @property {(brandId: string, options?: {ask?: boolean}) => Promise<boolean>} deleteBrand
+ * @property {() => Promise<void>} shutdown           save everything and end the process
  */
 
 const ROOT = path.join(import.meta.dirname, '..', '..');
@@ -155,16 +156,27 @@ async function boot() {
     ctx.window.focus();
   });
   ctx.window.webContents.on('did-finish-load', () => ctx.tabs.refresh());
-  ctx.window.on('closed', () => {
+
+  // Closing the window is the one way out. Electron's own quit is not used:
+  // in Electron 45 it never finishes once certain sites have been open (a
+  // bare Electron app that loads instagram.com and quits hangs the same way,
+  // and so do app.exit and process.exit). So fanout saves everything itself
+  // and then ends its own process, which cannot hang. See docs/gotchas.md.
+  ctx.shutdown = async () => {
     ctx.tabs.dispose();
     ctx.watcher.closeAll();
-    app.quit();
-  });
-  app.on('will-quit', () => {
     store.flush();
     posted.flush();
+    await ctx.sessions.flushAll();
+    process.kill(process.pid, 'SIGKILL');
+  };
+  ctx.window.on('closed', ctx.shutdown);
+  app.on('before-quit', (event) => {
+    // Quit from the menu, the dock or the system: turn it into closing the window.
+    event.preventDefault();
+    if (!ctx.window.isDestroyed()) ctx.window.close();
   });
-  app.on('window-all-closed', () => app.quit());
+  app.on('window-all-closed', () => {}); // shutdown is already on its way
 
   await ctx.window.loadFile(path.join(ROOT, 'src', 'renderer', 'index.html'));
   return ctx;

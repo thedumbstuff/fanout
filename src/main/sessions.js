@@ -62,6 +62,23 @@ export class BrandSessions {
     return this.#brandBySession.get(ses) ?? null;
   }
 
+  /**
+   * Write every brand's cookies and site storage to disk now. Chromium saves
+   * them on a delay of up to 30 seconds; main.js calls this before it ends
+   * the process so that a sign-in made just before closing is not lost.
+   */
+  async flushAll(timeoutMs = 2500) {
+    const writes = [];
+    for (const ses of this.#brandBySession.keys()) {
+      writes.push(ses.cookies.flushStore());
+      ses.flushStorageData();
+    }
+    let timer;
+    const limit = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+    await Promise.race([Promise.allSettled(writes), limit]);
+    clearTimeout(timer);
+  }
+
   /** Sign out everywhere: delete a brand's cookies, storage and cache. */
   async wipe(brandId) {
     const ses = this.for(brandId);

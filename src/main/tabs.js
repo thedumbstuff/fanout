@@ -301,10 +301,19 @@ export class TabManager {
     this.#present({ focus });
   }
 
+  /**
+   * The window is closing. A page does not die with the window it was shown
+   * in, so each one is destroyed here; otherwise they would outlive the app's
+   * only window and hold up quitting.
+   */
   dispose() {
     this.#disposed = true;
     clearInterval(this.#sweeper);
-    for (const live of this.#live.values()) clearTimeout(live.forceTimer);
+    for (const live of this.#live.values()) {
+      clearTimeout(live.forceTimer);
+      live.intent = 'drop';
+      if (!live.contents.isDestroyed()) live.contents.close();
+    }
   }
 
   // --------------------------------------------------------------- private
