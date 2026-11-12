@@ -184,8 +184,16 @@ phases:
         depends_on: [P2.2]
         checks:
           - {type: path, path: src/renderer/dialogs.js}
+      - id: P2.7
+        title: Split view - one to four pages side by side, resizable dividers, layout and open pages remembered per brand
+        status: done
+        effort: 4
+        depends_on: [P2.2]
+        why: Asked for by the owner mid-build (2026-11-12). Tabs on screen are never put to sleep.
+        checks:
+          - {type: cmd, run: "npm test --silent"}
       - id: P2.6
-        title: End-to-end smoke test of the real app (30 checks, run by hand - it opens a window)
+        title: End-to-end smoke test of the real app (37 checks, run by hand - it opens a window)
         status: done
         effort: 3
         depends_on: [P2.3, P2.4]
@@ -319,4 +327,5 @@ features:
   - {id: F6, title: Sleeping tabs, source: own, area: other, status: shipped, task: P3.1, note: "Unused tabs give their memory back; busy or unsaved tabs are left alone"}
   - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
   - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
+  - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages"}
   - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}
