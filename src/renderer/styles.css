@@ -232,6 +232,8 @@ button { cursor: default; }
   cursor: text;
 }
 #address:focus { border-color: var(--pink); outline: none; }
+/* The site answered the page on screen with an error (a refusal can leave the page empty). */
+#answer { flex: none; height: 22px; padding: 0 9px; margin-right: 4px; border: 1px solid var(--pink); border-radius: 11px; background: var(--select); font-size: 12px; font-weight: 600; line-height: 20px; white-space: nowrap; }
 #address::placeholder { color: var(--muted); }
 
 /* The real page is a separate layer placed exactly over #page. What is drawn

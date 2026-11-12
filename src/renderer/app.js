@@ -137,7 +137,7 @@ function renderTabs() {
   const draw = {
     key: (tab) => tab.id,
     signature: (tab) => [tab.label, tab.favicon, tab.id === brand.activeTabId, shown.has(tab.id), tab.live, tab.loading,
-      tab.audible, tab.keepAwake, tab.temp, tab.url, metrics.tabs[tab.id] ?? ''].join('|'),
+      tab.audible, tab.keepAwake, tab.temp, tab.url, tab.answer, metrics.tabs[tab.id] ?? ''].join('|'),
     create: (tab) => tabElement(tab, tab.id === brand.activeTabId, shown.has(tab.id)),
   };
 
@@ -163,7 +163,8 @@ function tabElement(tab, selected, onScreen) {
   const { label } = tab;
   const asleep = !tab.live && Boolean(tab.url);
   const memory = metrics.tabs[tab.id];
-  const tip = [label, tab.url, asleep ? 'Asleep: uses no memory, loads when opened' : memory ? `${memory} MB` : '',
+  const tip = [label, tab.url, tab.answer ? `The site answered ${tab.answer}` : '',
+    asleep ? 'Asleep: uses no memory, loads when opened' : memory ? `${memory} MB` : '',
     tab.keepAwake ? 'Kept awake' : ''].filter(Boolean).join('\n');
 
   const face = tab.loading
@@ -247,6 +248,15 @@ function renderToolbar() {
   $('reload').replaceChildren(icon(tab?.loading ? 'stop' : 'reload'));
   $('reload').title = tab?.loading ? 'Stop loading' : 'Reload (Ctrl+R)';
   $('toggle-panel').classList.toggle('is-on', state.settings.panelOpen);
+
+  // The site answered the page on screen with an error. Said here because a
+  // refusal can come with no text, and the page itself then stays empty.
+  const answer = $('answer');
+  answer.hidden = !tab?.answer;
+  answer.textContent = tab?.answer ? `Site answered ${tab.answer}` : '';
+  answer.title = tab?.answer
+    ? `The site sent the error "${tab.answer}" for this page instead of the page. If the page is empty, the site refused to show it.`
+    : '';
 
   const address = $('address');
   address.disabled = !activeBrand();

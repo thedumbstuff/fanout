@@ -31,7 +31,7 @@ export class TabManager {
   #uploads;
   #changed;
 
-  /** tabId -> { view, contents, contentsId, lastActive, wokeAt, focused, intent, hold, loading, error, forceTimer } */
+  /** tabId -> { view, contents, contentsId, lastActive, wokeAt, focused, intent, hold, loading, error, answer, forceTimer } */
   #live = new Map();
   #tabByContents = new Map(); // webContents id -> tabId
   #parked = new Set(); // tabs asleep on purpose: selected, but not to be loaded
@@ -323,6 +323,7 @@ export class TabManager {
       audible: live?.contents.isCurrentlyAudible() ?? false,
       holding: live?.hold ?? false,
       error: live?.error ?? null,
+      answer: live?.answer ?? null,
       crashed: this.#crashed.has(tabId),
       parked: this.#parked.has(tabId),
     };
@@ -475,6 +476,7 @@ export class TabManager {
       hold: false, // refused to sleep because of unsaved work
       loading: false,
       error: null,
+      answer: null, // the site's answer to the page on screen when it is an error, e.g. "403 Forbidden"
       forceTimer: null,
     };
     this.#live.set(tab.id, live);
@@ -506,7 +508,15 @@ export class TabManager {
       const icon = icons.find(isWebUrl);
       if (icon) update((t) => { t.favicon = icon; });
     });
-    contents.on('did-navigate', (_e, url) => {
+    contents.on('did-navigate', (_e, url, code, text) => {
+      // An error answer is kept so the interface can say so: a site that
+      // refuses a page may send no text at all, and the page would just
+      // stay empty without a word (Chromium reports no load error for it).
+      const answer = code >= 400 ? `${code} ${text}`.trim() : null;
+      if (answer !== live.answer) {
+        live.answer = answer;
+        this.#changed();
+      }
       if (isWebUrl(url)) update((t) => { t.url = url; });
     });
     contents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -527,6 +537,7 @@ export class TabManager {
     contents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
       if (!isMainFrame || code === ABORTED) return;
       live.error = { code, description, url };
+      live.answer = null; // the load error says it all
       this.#present();
     });
 
