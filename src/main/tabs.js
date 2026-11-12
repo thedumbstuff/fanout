@@ -1,17 +1,21 @@
 // Tabs and their memory.
 //
 // A tab is a saved address. Only a "live" tab has a page (a WebContentsView
-// with its own process). Tabs are loaded the first time they are selected,
-// only the tabs in the brand's panes (one to four) are attached to the window,
-// and background tabs are
-// put to sleep (page destroyed, address kept) by the policy in sleeper.js.
+// with its own process). Tabs are loaded the first time they are shown, only
+// the tabs on screen (onScreen in model.js: the group's panes, or one tab on
+// its own in front of the group) are attached to the window, and background
+// tabs - group tabs waiting behind a solo tab among them - are put to sleep
+// (page destroyed, address kept) by the policy in sleeper.js.
 //
 // Putting a tab to sleep asks the page first, the same way closing a browser
 // tab does (beforeunload). A page holding unsaved work says no, and is then
 // left alone until its owner has looked at it again.
 
 import { WebContentsView, app, dialog } from 'electron';
-import { addTab, findBrand, findTab, focusPane, nameFor, removeTab, setPaneCount, setSplit, showTab } from './model.js';
+import {
+  addTab, findBrand, findTab, focusPane, nameFor, onScreen, placeTab, removeTab, setPaneCount, setSplit, showTab,
+  takeOutOfGroup,
+} from './model.js';
 import { pickTabsToSleep } from './sleeper.js';
 import { isWebUrl, toUrl } from './urls.js';
 
@@ -77,10 +81,10 @@ export class TabManager {
     this.sweep();
   }
 
-  /** Make a pane the one the address bar and tab strip act on. */
+  /** Make a pane the one the address bar acts on; brings the group back if a solo tab was in front. */
   focusPane(brandId, index) {
     const brand = findBrand(this.#store.data, brandId);
-    if (!brand || brand.focus === index) return;
+    if (!brand || (brand.focus === index && !brand.solo)) return;
     focusPane(brand, index);
     this.#store.touch();
     this.#present({ focus: true });
@@ -116,15 +120,41 @@ export class TabManager {
     this.sweep();
   }
 
-  /** Add a tab to a brand. A background tab is not loaded until it is selected. */
-  open(brandId, { url = '', temp = false, afterId = null, background = false } = {}) {
+  /**
+   * Add a tab to a brand. A background tab is not loaded until it is selected.
+   * `pane` puts it in that pane of the group ("Open a new tab here" in an
+   * empty pane); otherwise it is selected like any other tab.
+   */
+  open(brandId, { url = '', temp = false, afterId = null, background = false, pane = null } = {}) {
     const brand = findBrand(this.#store.data, brandId);
     if (!brand) return null;
     const tab = addTab(brand, { url, temp, afterId });
     this.#store.touch();
     if (background) this.#changed();
+    else if (Number.isInteger(pane) && pane < brand.panes.length) this.putInGroup(tab.id, pane);
     else this.select(tab.id);
     return tab;
+  }
+
+  /** Put a tab in a pane of its brand's group (where groupSlot says, unless `pane` is given) and show the group. */
+  putInGroup(tabId, pane) {
+    const found = findTab(this.#store.data, tabId);
+    if (!found || !placeTab(found.brand, tabId, pane)) return;
+    this.#store.data.activeBrandId = found.brand.id;
+    this.#parked.delete(tabId);
+    this.#crashed.delete(tabId);
+    this.#store.touch();
+    this.#present({ focus: true });
+    this.sweep();
+  }
+
+  /** Take a tab out of its brand's group: its pane is left empty. */
+  takeOutOfGroup(tabId) {
+    const found = findTab(this.#store.data, tabId);
+    if (!found || !takeOutOfGroup(found.brand, tabId)) return;
+    this.#store.touch();
+    this.#present();
+    this.sweep();
   }
 
   /** A page asked for a new tab (a link with target=_blank, or the menu). */
@@ -349,14 +379,15 @@ export class TabManager {
     return findBrand(data, data.activeBrandId);
   }
 
-  /** The tab in the focused pane of the brand on screen. */
+  /** The tab the address bar acts on: the solo tab, else the tab in the focused pane. */
   #activeTabId() {
     return this.#activeBrand()?.activeTabId ?? null;
   }
 
-  /** The tabs in the panes of the brand on screen. */
+  /** The tabs on screen: the brand's panes, or its solo tab alone. */
   #onScreen() {
-    return new Set((this.#activeBrand()?.panes ?? []).filter(Boolean));
+    const brand = this.#activeBrand();
+    return new Set(brand ? onScreen(brand).filter(Boolean) : []);
   }
 
   #isBusy(live, now) {
@@ -370,8 +401,9 @@ export class TabManager {
   }
 
   /**
-   * Make the window show the panes of the selected brand: load each pane's
-   * tab if needed, attach its view, detach the views that no longer belong.
+   * Make the window show what the selected brand has on screen: load each
+   * tab there if needed, attach its view, detach the views that no longer
+   * belong (a group behind a solo tab is detached like any background tab).
    */
   #present({ focus = false } = {}) {
     if (this.#disposed) return;
@@ -379,7 +411,7 @@ export class TabManager {
     const now = Date.now();
     const wanted = new Set();
 
-    for (const tabId of brand?.panes ?? []) {
+    for (const tabId of brand ? onScreen(brand) : []) {
       const tab = tabId && brand.tabs.find((t) => t.id === tabId);
       if (!tab?.url || this.#parked.has(tabId)) continue;
       const live = this.#live.get(tabId) ?? this.#wake(brand, tab);
@@ -405,11 +437,17 @@ export class TabManager {
     this.#changed();
   }
 
-  /** Put each attached view on the rectangle of the pane its tab is in. */
+  /** Put each attached view on its rectangle; the interface reports them in onScreen order. */
   #place() {
-    const panes = this.#activeBrand()?.panes ?? [];
+    const brand = this.#activeBrand();
+    const slots = brand ? onScreen(brand) : [];
+    // Rectangles for another layout (the group's four while a solo tab has
+    // just come up, say) are about to be replaced: placing a page on them
+    // would flash it in the wrong spot. The interface reports the new ones
+    // as soon as it has drawn them.
+    if (this.#bounds.length !== slots.length) return;
     for (const tabId of this.#attached) {
-      const rect = this.#bounds[panes.indexOf(tabId)];
+      const rect = this.#bounds[slots.indexOf(tabId)];
       if (rect) this.#live.get(tabId).view.setBounds(rect);
     }
   }
@@ -520,10 +558,12 @@ export class TabManager {
       }
     });
 
-    // Clicking inside a page makes its pane the focused one.
+    // Clicking inside a page makes its pane the focused one. Only a page of a
+    // group on screen counts: a group page behind a solo tab that focuses
+    // itself must not bring the group back.
     contents.on('focus', () => {
       const brand = this.#activeBrand();
-      const pane = brand?.panes.indexOf(tabId) ?? -1;
+      const pane = brand && !brand.solo ? brand.panes.indexOf(tabId) : -1;
       if (pane === -1 || brand.focus === pane) return;
       focusPane(brand, pane);
       this.#store.touch();

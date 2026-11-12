@@ -103,9 +103,11 @@ export function registerIpc(ctx) {
   });
 
   // ------------------------------------------------------------------- tabs
-  handle('tab:create', (brandId, input) => {
+  // `pane`: "Open a new tab here" in an empty pane of the group puts the tab in that pane.
+  handle('tab:create', (brandId, input, pane) => {
     const url = input ? toUrl(input) : '';
-    return tabs.open(brandId, { url: url ?? '' })?.id ?? null;
+    const at = Number.isInteger(pane) && pane >= 0 && pane < MAX_PANES ? pane : null;
+    return tabs.open(brandId, { url: url ?? '', pane: at })?.id ?? null;
   });
   handle('tab:select', (tabId) => tabs.select(tabId));
   handle('tab:close', (tabId) => tabs.close(tabId));

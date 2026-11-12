@@ -4,7 +4,7 @@
 
 import { Menu, clipboard, shell } from 'electron';
 import path from 'node:path';
-import { destinations, findBrand, findTab } from './model.js';
+import { destinations, findBrand, findTab, groupSlot, isBlank, stepTab, tabLabel } from './model.js';
 import { resolveInside } from './pathjail.js';
 
 /** @param {import('./main.js').Context} ctx */
@@ -21,12 +21,12 @@ export function buildAppMenu(ctx) {
     if (contents) fn(contents);
   };
   const zoom = (step) => onPage((c) => c.setZoomLevel(step === 0 ? 0 : c.getZoomLevel() + step));
+  // Round the tab strip in the order it is drawn: through the group pane by
+  // pane (the group comes back), then each tab outside it (shown on its own).
   const step = (direction) => () => {
     const brand = findBrand(store.data, store.data.activeBrandId);
-    if (!brand || brand.tabs.length < 2) return;
-    const at = brand.tabs.findIndex((tab) => tab.id === brand.activeTabId);
-    const next = brand.tabs[(at + direction + brand.tabs.length) % brand.tabs.length];
-    tabs.select(next.id);
+    const next = brand && stepTab(brand, direction);
+    if (next) tabs.select(next);
   };
 
   return Menu.buildFromTemplate([
@@ -79,16 +79,45 @@ export function buildAppMenu(ctx) {
   ]);
 }
 
-/** @param {import('./main.js').Context} ctx */
-export function popupTabMenu(ctx, tabId) {
+/** A tab's name inside a menu label: short, and with "&" shown as itself rather than as a shortcut mark. */
+const menuText = (text) => (text.length > 40 ? `${text.slice(0, 39)}…` : text).replace(/&/g, '&&');
+
+/**
+ * The tab menu's entry for the brand's group, if the brand has one. Joining
+ * the group is deliberate (selecting a tab never does it), so the label says
+ * which tab the new one would push out.
+ * @returns {Electron.MenuItemConstructorOptions[]}
+ */
+function groupItems(ctx, brand, tab) {
+  if (brand.panes.length < 2) return [];
+  if (brand.panes.includes(tab.id)) {
+    // A blank tab has nothing to keep: out of the group it would simply be removed.
+    return [{ label: 'Take out of the group', enabled: !isBlank(tab), click: () => ctx.tabs.takeOutOfGroup(tab.id) }];
+  }
+  const replaced = brand.tabs.find((t) => t.id === brand.panes[groupSlot(brand)]);
+  return [{
+    label: replaced ? `Put in the group, in place of "${menuText(tabLabel(replaced))}"` : 'Put in the group',
+    click: () => ctx.tabs.putInGroup(tab.id),
+  }];
+}
+
+/**
+ * What a tab's right-click menu holds. Separate from showing it so the smoke
+ * test can run an entry through the same code a click does.
+ * @param {import('./main.js').Context} ctx
+ */
+export function tabMenuTemplate(ctx, tabId) {
   const { tabs, store } = ctx;
   const found = findTab(store.data, tabId);
-  if (!found) return;
-  const { tab } = found;
+  if (!found) return null;
+  const { tab, brand } = found;
   const state = tabs.runtime(tabId);
   const act = (name) => () => tabs.act(tabId, name);
+  const group = groupItems(ctx, brand, tab);
 
-  popup(ctx, [
+  return [
+    ...group,
+    ...(group.length ? [{ type: 'separator' }] : []),
     { label: 'Reload', enabled: Boolean(tab.url), click: act('reload') },
     { label: 'Go to its home page', enabled: Boolean(tab.homeUrl) && tab.homeUrl !== tab.url, click: act('home') },
     { label: 'Use this page as its home page', enabled: Boolean(tab.url) && tab.homeUrl !== tab.url, click: act('set-home') },
@@ -101,7 +130,13 @@ export function popupTabMenu(ctx, tabId) {
     { label: 'Put other tabs to sleep', click: () => tabs.sleepOthers() },
     { type: 'separator' },
     { label: 'Close tab', click: () => tabs.close(tabId) },
-  ]);
+  ];
+}
+
+/** @param {import('./main.js').Context} ctx */
+export function popupTabMenu(ctx, tabId) {
+  const template = tabMenuTemplate(ctx, tabId);
+  if (template) popup(ctx, template);
 }
 
 /** @param {import('./main.js').Context} ctx */

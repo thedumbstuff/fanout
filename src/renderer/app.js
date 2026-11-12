@@ -28,6 +28,7 @@ let renamingTabId = null;
 let shownTabId = null; // the tab whose address is in the address bar
 
 const activeBrand = () => state.brands.find((brand) => brand.id === state.activeBrandId) ?? null;
+/** The tab the address bar acts on: the one shown on its own, else the one in the focused pane. */
 const activeTab = () => {
   const brand = activeBrand();
   return brand?.tabs.find((tab) => tab.id === brand.activeTabId) ?? null;
@@ -132,20 +133,26 @@ function renderTabs() {
   if (renamingTabId) return; // do not pull the text box out from under the person typing
   const brand = activeBrand();
   const tabs = brand?.tabs ?? [];
+  const shown = new Set(brand?.screen ?? []);
   const draw = {
     key: (tab) => tab.id,
-    signature: (tab) => [tab.label, tab.favicon, tab.id === brand.activeTabId, brand.panes.includes(tab.id), tab.live, tab.loading,
+    signature: (tab) => [tab.label, tab.favicon, tab.id === brand.activeTabId, shown.has(tab.id), tab.live, tab.loading,
       tab.audible, tab.keepAwake, tab.temp, tab.url, metrics.tabs[tab.id] ?? ''].join('|'),
-    create: (tab) => tabElement(tab, tab.id === brand.activeTabId, brand.panes.includes(tab.id)),
+    create: (tab) => tabElement(tab, tab.id === brand.activeTabId, shown.has(tab.id)),
   };
 
-  // The tabs on screen together form one group, in the order of their panes
-  // (left to right, top to bottom); the tabs waiting their turn follow it.
-  const split = (brand?.panes.length ?? 1) > 1;
-  const together = split ? brand.panes.map((id) => tabs.find((tab) => tab.id === id)).filter(Boolean) : [];
+  // The group: the tabs side by side in the panes, in pane order (left to
+  // right, top to bottom), outlined in the brand's colour; the other tabs
+  // follow it. While one of those is shown on its own the group keeps its
+  // outline, dashed: it is waiting, one click away.
+  const together = (brand?.group ?? []).map((id) => tabs.find((tab) => tab.id === id)).filter(Boolean);
+  const waiting = Boolean(brand?.solo);
   const group = $('tab-group');
   group.hidden = !together.length;
-  group.title = `These ${together.length} pages are on screen together`;
+  group.classList.toggle('is-waiting', waiting);
+  group.title = waiting
+    ? `These ${together.length} pages are side by side. Click one to show them again.`
+    : `These ${together.length} pages are on screen together`;
   if (brand) group.style.setProperty('--brand', brand.color);
   reconcile(group, together, draw);
   reconcile($('tab-rest'), tabs.filter((tab) => !together.includes(tab)), draw);
@@ -221,10 +228,11 @@ function renameTab(tabId) {
   input.select();
 }
 
-async function newTab() {
+/** Open a blank tab: on its own in front of the group, or in pane number `pane` of it. */
+async function newTab(pane) {
   const brand = activeBrand();
   if (!brand) return addBrand();
-  await api.createTab(brand.id);
+  await api.createTab(brand.id, '', Number.isInteger(pane) ? pane : undefined);
   $('address').focus();
 }
 
@@ -272,13 +280,12 @@ function wireToolbar() {
   $('go-forward').onclick = act('forward');
   $('go-home').onclick = act('home');
   $('reload').onclick = () => act(activeTab()?.loading ? 'stop' : 'reload')();
-  $('new-tab').onclick = newTab;
+  $('new-tab').onclick = () => newTab();
   $('add-brand').onclick = addBrand;
   $('open-settings').onclick = () => openSettingsDialog({ api, settings: state.settings, version: state.version });
   $('toggle-panel').onclick = togglePanel;
 
-  const names = ['One page', 'Two pages side by side', 'Three pages', 'Four pages'];
-  $('layouts').append(...names.map((name, i) => h('button', {
+  $('layouts').append(...LAYOUT_NAMES.map((name, i) => h('button', {
     class: 'tool',
     title: name,
     'aria-label': name,
@@ -299,10 +306,13 @@ function wireToolbar() {
 
 // ------------------------------------------------------------------- panes
 
-// A brand shows one to four of its tabs side by side. Each pane is a box
-// here; the real page is a separate layer the main process places exactly
-// over the pane's body. What is drawn in the body shows only when there is no
-// page to put there: no brand, an empty pane, a blank or sleeping tab.
+// A brand shows one to four of its tabs side by side, or one tab outside its
+// group on its own (`brand.screen`, worked out by onScreen in main/model.js).
+// Each is a box here; the real page is a separate layer the main process
+// places exactly over the box's body. What is drawn in the body shows only
+// when there is no page to put there: no brand, an empty pane, a blank or
+// sleeping tab.
+const LAYOUT_NAMES = ['One page', 'Two pages side by side', 'Three pages', 'Four pages'];
 let panesSignature = '';
 let dragSplit = null; // divider positions while one is being dragged
 
@@ -317,13 +327,13 @@ const paneKind = (brand, tab) =>
 
 function renderPanes() {
   const brand = activeBrand();
-  const tabs = (brand?.panes ?? [null]).map((id) => brand?.tabs.find((tab) => tab.id === id) ?? null);
+  const tabs = (brand?.screen ?? [null]).map((id) => brand?.tabs.find((tab) => tab.id === id) ?? null);
   const page = $('page');
   page.dataset.count = String(tabs.length);
   page.style.setProperty('--sx', String(dragSplit?.x ?? brand?.splitX ?? 0.5));
   page.style.setProperty('--sy', String(dragSplit?.y ?? brand?.splitY ?? 0.5));
 
-  const signature = JSON.stringify([brand?.id, brand?.name, brand?.focus, tabs.map((tab) =>
+  const signature = JSON.stringify([brand?.id, brand?.name, brand?.focus, brand?.solo, brand?.panes.length, tabs.map((tab) =>
     [paneKind(brand, tab), tab?.id, tab?.label, tab?.favicon, tab?.error?.description, tab?.error?.url])]);
   if (signature !== panesSignature) {
     panesSignature = signature;
@@ -336,15 +346,26 @@ function renderPanes() {
 
 function paneElement(brand, tab, index, count) {
   const kind = paneKind(brand, tab);
-  const focused = Boolean(brand) && index === brand.focus;
+  const solo = Boolean(brand?.solo);
+  // A solo tab is the one box on screen; the group's focus waits with the group.
+  const focused = Boolean(brand) && (solo || index === brand.focus);
+  const favicon = tab?.favicon ? h('img', { class: 'favicon', src: tab.favicon, alt: '', onerror: (e) => e.target.remove() }) : null;
+  const title = h('span', { class: 'pane-title' }, tab ? tab.label : 'Empty');
+  const head = solo
+    ? h('header', { class: 'pane-head is-solo', title: tab?.url || '' }, favicon, title,
+      h('span', { class: 'pane-aside' }, 'on its own'),
+      h('button', {
+        class: 'pane-back',
+        title: `Show the ${brand.panes.length} pages side by side again`,
+        onclick: () => api.focusPane(brand.id, brand.focus),
+      }, 'Back to the group'))
+    : count > 1 ? h('header', { class: 'pane-head', title: tab?.url || '' }, favicon, title) : null;
   return h('section', {
     class: `pane${focused && count > 1 ? ' is-focused' : ''}`,
-    dataset: { index: String(index) },
+    dataset: { index: String(index), tab: tab?.id ?? '' },
     onmousedown: () => { if (brand && !focused) api.focusPane(brand.id, index); },
   },
-  count > 1 ? h('header', { class: 'pane-head', title: tab?.url || '' },
-    tab?.favicon ? h('img', { class: 'favicon', src: tab.favicon, alt: '', onerror: (e) => e.target.remove() }) : null,
-    h('span', { class: 'pane-title' }, tab ? tab.label : 'Empty')) : null,
+  head,
   h('div', { class: 'pane-body' }, h('div', { class: 'page-note' }, paneNote(kind, brand, tab, index))));
 }
 
@@ -360,13 +381,16 @@ function paneNote(kind, brand, tab, index) {
         button('Add your first brand', addBrand),
       ];
     case 'empty':
-      return [
+      // Picking a tab no longer fills a pane of the group (it shows the tab on
+      // its own), so the way in is the tab menu, or a new tab made for this pane.
+      return brand.panes.length > 1 ? [
         h('h1', {}, 'Nothing here yet.'),
-        h('p', {}, 'Click this pane, then pick a tab above to show it here.'),
-        button('Open a new tab here', async () => {
-          await api.focusPane(brand.id, index);
-          newTab();
-        }),
+        h('p', {}, 'To show a tab here, right-click it above and choose "Put in the group". Or start a new one here.'),
+        button('Open a new tab here', () => newTab(index)),
+      ] : [
+        h('h1', {}, 'Nothing here yet.'),
+        h('p', {}, 'Pick a tab above to show it here.'),
+        button('Open a new tab', () => newTab()),
       ];
     case 'blank':
       return [
@@ -406,11 +430,20 @@ function friendlyError({ code, description }) {
   return description ? `The browser reported: ${description}` : 'The site could not be reached.';
 }
 
+// The lit button is the number of pages on screen: "one page" while a tab is
+// shown on its own (choosing it then changes nothing; see setPaneCount). The
+// group's own size is marked as waiting, and choosing it brings the group back.
 function renderLayouts() {
   const brand = activeBrand();
+  const waiting = brand?.solo ? brand.panes.length : 0;
   for (const button of $('layouts').children) {
+    const count = Number(button.dataset.count);
+    const name = LAYOUT_NAMES[count - 1];
     button.disabled = !brand;
-    button.classList.toggle('is-on', Boolean(brand) && Number(button.dataset.count) === brand.panes.length);
+    button.classList.toggle('is-on', Boolean(brand) && count === brand.screen.length);
+    button.classList.toggle('is-waiting', count === waiting);
+    button.title = count === waiting ? `${name}: back to the group` : name;
+    button.ariaLabel = button.title;
   }
 }
 // ------------------------------------------------------------------ layout

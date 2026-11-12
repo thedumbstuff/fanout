@@ -17,7 +17,7 @@ import path from 'node:path';
 import { FolderWatcher } from './files.js';
 import { registerIpc } from './ipc.js';
 import { buildAppMenu } from './menus.js';
-import { BRAND_COLORS, deleteBrand, findBrand, sanitize, tabLabel } from './model.js';
+import { BRAND_COLORS, deleteBrand, findBrand, groupOf, onScreen, sanitize, tabLabel } from './model.js';
 import { hardenPage } from './pages.js';
 import { PostedStore } from './posted.js';
 import { BrandSessions } from './sessions.js';
@@ -124,9 +124,12 @@ async function boot() {
       name: brand.name,
       color: brand.color,
       folder: brand.folder,
-      activeTabId: brand.activeTabId,
+      activeTabId: brand.activeTabId, // the tab the address bar acts on
       panes: brand.panes,
       focus: brand.focus,
+      solo: brand.solo, // a tab outside the group, shown on its own in front of it
+      screen: onScreen(brand), // what the page area shows, one entry per rectangle
+      group: groupOf(brand), // the tabs of the group in pane order, for the tab strip
       splitX: brand.splitX,
       splitY: brand.splitY,
       tabs: brand.tabs.map((tab) => ({
