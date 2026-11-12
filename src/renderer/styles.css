@@ -397,6 +397,59 @@ button.primary:hover { background: #2a2620; }
 .preview-note { margin: 6px 12px; color: var(--muted); }
 .preview-hint { flex: none; margin: 0; padding: 3px 12px 5px; color: var(--muted); font: 15px/1 'Gochi Hand', cursive; }
 
+.preview-toggle { height: 22px; flex: none; padding: 0 9px; border: 1px solid var(--line); border-radius: 11px; background: none; font-size: 12px; font-weight: 600; }
+.preview-toggle:hover { background: var(--hover); }
+.preview-toggle.is-on { border-color: var(--text); background: var(--select); }
+
+/* A Markdown file, formatted. The panel is narrow, so sizes stay small and
+   wide things (code, tables) scroll inside their own box. */
+.preview-md {
+  flex: 1;
+  min-height: 0;
+  padding: 2px 12px 10px;
+  overflow: auto;
+  font: 13px/1.5 'Bricolage Grotesque', system-ui, sans-serif;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+  outline: none;
+}
+.preview-md::selection, .preview-md ::selection { background: var(--yellow); color: var(--ink); }
+.preview-md > :first-child { margin-top: 0; }
+.preview-md :is(p, ul, ol, blockquote, pre, .md-table) { margin: 0 0 9px; }
+.preview-md :is(h1, h2, h3, h4, h5, h6) { margin: 14px 0 6px; line-height: 1.2; font-weight: 700; }
+.preview-md h1 { font-size: 19px; }
+.preview-md h2 { font-size: 16px; }
+.preview-md h3 { font-size: 14px; }
+.preview-md :is(h4, h5) { font-size: 13px; }
+.preview-md h6 { font-size: 12px; color: var(--muted); }
+.preview-md :is(h1, h2) { padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+.preview-md strong { font-weight: 700; }
+.preview-md del { color: var(--muted); }
+.preview-md :is(ul, ol) { padding-left: 20px; }
+.preview-md li + li { margin-top: 2px; }
+.preview-md li > :is(ul, ol) { margin: 2px 0 0; }
+.preview-md li > p { margin: 0 0 6px; }
+.preview-md .md-task-item { list-style: none; }
+.preview-md .md-task { position: relative; display: inline-block; width: 12px; height: 12px; margin: 0 6px 0 -18px; border: 1.5px solid var(--muted); border-radius: 3px; vertical-align: -1px; }
+.preview-md .md-task.is-done { border-color: var(--text); background: var(--text); }
+.preview-md .md-task.is-done::after { content: ''; position: absolute; left: 3px; top: 0; width: 3px; height: 6px; border: solid var(--bg); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.preview-md code { padding: 1px 4px; border-radius: 4px; background: var(--hover); font: 12px/1.4 ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+.preview-md pre { padding: 7px 9px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.preview-md pre code { padding: 0; background: none; white-space: pre; overflow-wrap: normal; }
+.preview-md blockquote { margin-left: 0; margin-right: 0; padding-left: 10px; border-left: 3px solid var(--pink); color: var(--muted); }
+.preview-md hr { height: 0; margin: 12px 0; border: 0; border-top: 1px solid var(--line); }
+.preview-md .md-table { overflow-x: auto; }
+.preview-md table { border-collapse: collapse; font-size: 12px; }
+.preview-md :is(th, td) { padding: 3px 8px; border: 1px solid var(--line); vertical-align: top; text-align: left; overflow-wrap: normal; }
+.preview-md th { font-weight: 700; background: var(--hover); }
+.preview-md .is-center { text-align: center; }
+.preview-md .is-right { text-align: right; }
+.preview-md .md-link { color: inherit; text-decoration: underline; text-decoration-color: var(--pink); text-decoration-thickness: 1.5px; text-underline-offset: 2px; cursor: pointer; }
+.preview-md .md-link:hover { background: var(--hover); }
+.preview-md .md-link-off { text-decoration: underline dotted var(--muted); text-underline-offset: 2px; }
+.preview-md .md-picture { display: inline-block; max-width: 100%; padding: 0 6px; border: 1px dashed var(--muted); border-radius: 4px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+
 /* ---------------------------------------------------------------- status */
 
 #status { grid-area: status; display: flex; align-items: center; gap: 16px; padding: 0 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; white-space: nowrap; }

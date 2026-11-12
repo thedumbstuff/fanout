@@ -19,6 +19,11 @@ puts it in the update feed, and fanout shows it after updating.
   A tab that was stuck on the name "New tab" shows its page title again. A new tab that
   never got an address is removed when another tab takes its place, instead of staying
   in the tab strip.
+- Markdown files are shown formatted in the preview: headings, bold and italics, lists
+  and task lists, quotes, code, links and tables. "Source" shows the file as it is
+  written. Selecting formatted text copies it without the Markdown signs, ready for a
+  caption box; line breaks and hashtags stay as written. Pictures in a file are not
+  loaded, and a web link opens as a new tab of the brand.
 - Smaller installer.
 
 ## 0.1.0 - 2026-11-12

@@ -12,6 +12,7 @@ import {
   removeTab, sanitize, setPaneCount, setSplit, showTab, tabLabel, UNNAMED_TAB,
 } from '../src/main/model.js';
 import { renameText } from '../src/renderer/dom.js';
+import { isMarkdownFile, parseMarkdown, plainText, webHref } from '../src/renderer/markdown.js';
 import { notesText, whatsNew } from '../src/main/notes.js';
 import { notesFor } from '../tools/release.mjs';
 import { isInside, OutsideFolderError, resolveInside, toRel } from '../src/main/pathjail.js';
@@ -362,6 +363,158 @@ test('blank tabs live only in panes: one that loses its pane is removed', () => 
   showTab(brand, a);
   assert.ok(brand.tabs.includes(named), 'a blank tab the person named is kept');
   consistent();
+});
+
+// --------------------------------------------------------------- markdown
+
+/** A short written form of parsed Markdown, to compare against. Tight list items show no <p>, as drawn. */
+function show(nodes, tight = false) {
+  return nodes.map((n) => {
+    switch (n.type) {
+      case 'text': return n.text;
+      case 'break': return '<br>';
+      case 'codespan': return `<code>${n.text}</code>`;
+      case 'link': return n.href ? `<a ${n.href}>${show(n.children)}</a>` : `<inert ${n.target}>${show(n.children)}</inert>`;
+      case 'image': return `<picture ${n.alt}>`;
+      case 'heading': return `<h${n.level}>${show(n.children)}</h${n.level}>`;
+      case 'paragraph': return tight ? show(n.children) : `<p>${show(n.children)}</p>`;
+      case 'code': return `<pre${n.lang ? ` ${n.lang}` : ''}>${n.text}</pre>`;
+      case 'quote': return `<quote>${show(n.children)}</quote>`;
+      case 'hr': return '<hr>';
+      case 'list': {
+        const tag = n.ordered ? 'ol' : 'ul';
+        const items = n.items.map((item) =>
+          `<li${item.task === null ? '' : item.task ? ' [x]' : ' [ ]'}>${show(item.children, n.tight)}</li>`).join('');
+        return `<${tag}${n.ordered && n.start !== 1 ? ` ${n.start}` : ''}${n.tight ? '' : ' loose'}>${items}</${tag}>`;
+      }
+      case 'table': {
+        const row = (cells, tag) =>
+          `<tr>${cells.map((cell, c) => `<${tag}${n.align[c] ? ` ${n.align[c]}` : ''}>${show(cell)}</${tag}>`).join('')}</tr>`;
+        return `<table>${row(n.head, 'th')}${n.rows.map((r) => row(r, 'td')).join('')}</table>`;
+      }
+      default: return `<${n.type}>${show(n.children)}</${n.type}>`;
+    }
+  }).join('');
+}
+const md = (source) => show(parseMarkdown(source).children);
+
+test('markdown: a caption stays a caption - hashtag lines are text, line breaks are kept', () => {
+  assert.equal(md('Big news today.\n\nWe are **live** in three cities.\n#launch #acme\n'),
+    '<p>Big news today.</p><p>We are <strong>live</strong> in three cities.<br>#launch #acme</p>');
+  assert.equal(md('#launch #acme #behind_the_scenes'), '<p>#launch #acme #behind_the_scenes</p>',
+    'no space after #: hashtags, not a heading; underscores inside words are not italics');
+  assert.equal(md('# Launch #acme'), '<h1>Launch #acme</h1>');
+  assert.equal(md('## Closed ##'), '<h2>Closed</h2>');
+  assert.equal(md('####### seven'), '<p>####### seven</p>');
+  const lines = parseMarkdown('Line one  \nLine two\\\nLine three\r\nLine four').children[0].children;
+  assert.equal(show(lines), 'Line one<br>Line two<br>Line three<br>Line four', 'trailing spaces, backslashes and CRLF are plain breaks');
+  assert.equal(plainText(lines), 'Line one\nLine two\nLine three\nLine four');
+  assert.ok(isMarkdownFile('Caption.MD') && isMarkdownFile('notes.markdown'));
+  assert.ok(!isMarkdownFile('caption.txt') && !isMarkdownFile('subtitles.srt') && !isMarkdownFile('md'));
+});
+
+test('markdown: emphasis, strikethrough, code and escapes', () => {
+  assert.equal(md('**bold**, *italic*, _also_, ***both***, ~~gone~~, `a *b*`'),
+    '<p><strong>bold</strong>, <em>italic</em>, <em>also</em>, <em><strong>both</strong></em>, <del>gone</del>, <code>a *b*</code></p>');
+  assert.equal(md('*a **b** c*'), '<p><em>a <strong>b</strong> c</em></p>');
+  assert.equal(md('\\*not italic\\*, 5 * 3 * 2, a*b, **unclosed and *half'),
+    '<p>*not italic*, 5 * 3 * 2, a*b, **unclosed and *half</p>');
+  assert.equal(md('~one tilde~ and ~~~three~~~'), '<p>~one tilde~ and ~~~three~~~</p>', 'only ~~ strikes through');
+  assert.equal(md('``code with ` inside`` and `` ` ``'), '<p><code>code with ` inside</code> and <code>`</code></p>');
+  assert.equal(md('`unclosed code'), '<p>`unclosed code</p>');
+});
+
+test('markdown: lists nest, keep their numbers and carry task boxes', () => {
+  assert.equal(md('- one\n- two\n  - two a\n  - two b\n    1. deep\n- three'),
+    '<ul><li>one</li><li>two<ul><li>two a</li><li>two b<ol><li>deep</li></ol></li></ul></li><li>three</li></ul>');
+  assert.equal(md('3. third\n4. fourth\n\n- [ ] draft caption\n- [x] post reel\n- [X] also done\n- [link](https://a.example/)'),
+    '<ol 3><li>third</li><li>fourth</li></ol>' +
+    '<ul><li [ ]>draft caption</li><li [x]>post reel</li><li [x]>also done</li><li><a https://a.example/>link</a></li></ul>');
+  assert.equal(md('- a\n\n- b'), '<ul loose><li><p>a</p></li><li><p>b</p></li></ul>', 'a blank line between items: loose');
+  assert.equal(md('- item\ngoes on\n- next'), '<ul><li>item<br>goes on</li><li>next</li></ul>', 'unindented text continues an item');
+  assert.equal(md('1) a\n2) b\n1. c'), '<ol><li>a</li><li>b</li></ol><ol><li>c</li></ol>', 'another delimiter: another list');
+  assert.equal(md('Top three:\n1. Fast\n2. Cheap\n\nIn 2024. we grew'),
+    '<p>Top three:</p><ol><li>Fast</li><li>Cheap</li></ol><p>In 2024. we grew</p>');
+  assert.equal(md('* * *\n- - -'), '<hr><hr>', 'a rule is not a list');
+});
+
+test('markdown: tables, with alignment and escaped pipes', () => {
+  assert.equal(md('| Site | Posts | Note |\n| :--- | ---: | :-: |\n| TikTok | **3** | a \\| b |\n| X |'),
+    '<table><tr><th left>Site</th><th right>Posts</th><th center>Note</th></tr>' +
+    '<tr><td left>TikTok</td><td right><strong>3</strong></td><td center>a | b</td></tr>' +
+    '<tr><td left>X</td><td right></td><td center></td></tr></table>');
+  assert.equal(md('Intro\na | b\n--- | ---\n1 | 2\n\nAfter'),
+    '<p>Intro</p><table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table><p>After</p>');
+  assert.equal(md('| a | b |\n| --- |'), '<p>| a | b |<br>| --- |</p>', 'cell counts differ: not a table');
+});
+
+test('markdown: code blocks, quotes, rules and underlined headings', () => {
+  assert.equal(
+    md('```js\nconst a = "<b>";\n  *not* emphasis\n```\n\n    indented code\n\n> quoted **text**\nlazy line\n> > nested\n\n---\n\nTitle\n===\nSub\n---\n~~~\nunclosed'),
+    '<pre js>const a = "<b>";\n  *not* emphasis</pre><pre>indented code</pre>' +
+    '<quote><p>quoted <strong>text</strong><br>lazy line</p><quote><p>nested</p></quote></quote>' +
+    '<hr><h1>Title</h1><h2>Sub</h2><pre>unclosed</pre>');
+});
+
+test('markdown: raw HTML stays text, only web links are live, pictures keep only their description', () => {
+  assert.deepEqual(parseMarkdown('<script>alert(1)</script>\n<b onclick="steal()">bold</b>').children, [{
+    type: 'paragraph',
+    children: [{ type: 'text', text: '<script>alert(1)</script>' }, { type: 'break' }, { type: 'text', text: '<b onclick="steal()">bold</b>' }],
+  }]);
+  const links = parseMarkdown('[ok](https://a.example/x "Title") [js](javascript:alert(1)) [JS](JaVaScRiPt:alert(1)) ' +
+    '[mail](mailto:a@b.example) [file](file:///C:/x) [here](./notes.md) <javascript:alert(2)> <https://b.example/> ' +
+    'see https://c.example/path?q=(1).')
+    .children[0].children.filter((n) => n.type === 'link');
+  assert.deepEqual(links.map((link) => link.href),
+    ['https://a.example/x', null, null, null, null, null, null, 'https://b.example/', 'https://c.example/path?q=(1)']);
+  assert.equal(links[1].target, 'javascript:alert(1)', 'an inert link still says where it pointed');
+  assert.equal(md('See [the site][s] and [s].\n\n[s]: https://s.example/ "Title"\n[unused]: https://u.example/'),
+    '<p>See <a https://s.example/>the site</a> and <a https://s.example/>s</a>.</p>');
+  assert.equal(md('[no such reference] and [text](<no end'), '<p>[no such reference] and [text](<no end</p>');
+  assert.equal(md('[![badge](https://img.example/b.svg)](https://a.example/)'),
+    '<p><a https://a.example/><picture badge></a></p>', 'a picture inside a link');
+  assert.equal(md('![Our *logo*](https://a.example/logo.png) ![](pixel.gif)'), '<p><picture Our logo> <picture ></p>');
+  assert.equal(webHref(' https://a.example '), 'https://a.example/');
+  for (const bad of ['javascript:alert(1)', 'http:/x', 'ftp://a.example', 'data:text/html,x', '//a.example', '', null]) {
+    assert.equal(webHref(bad), null, String(bad));
+  }
+});
+
+test('markdown: hostile files are read quickly, without deep recursion', () => {
+  const size = 200_000;
+  const hostile = {
+    stars: 'a*'.repeat(size / 2),
+    underscores: '_a'.repeat(size / 2),
+    brackets: '[a]('.repeat(size / 4),
+    backticks: Array.from({ length: 600 }, (_, k) => `${'`'.repeat(k + 1)}x`).join(''),
+    angles: '<http:'.repeat(size / 6),
+    quotes: '>'.repeat(size),
+    indents: Array.from({ length: 2000 }, (_, k) => `${' '.repeat(k * 2)}- item`).join('\n'),
+    deepEmphasis: `${'*a '.repeat(3000)}b${' c*'.repeat(3000)}`,
+  };
+  /** Nodes in a tree, counted without recursion (the tree may be thousands of levels deep). */
+  const nodes = (root) => {
+    let count = 0;
+    const stack = [root];
+    while (stack.length) {
+      const value = stack.pop();
+      if (Array.isArray(value)) for (const v of value) stack.push(v);
+      else if (value && typeof value === 'object') {
+        count += 1;
+        for (const v of Object.values(value)) stack.push(v);
+      }
+    }
+    return count;
+  };
+  for (const [name, text] of Object.entries(hostile)) {
+    const started = Date.now();
+    const doc = parseMarkdown(text);
+    const ms = Date.now() - started;
+    assert.ok(ms < 1500, `${name}: ${ms} ms`);
+    assert.ok(nodes(doc) > 1, name);
+  }
+  const deep = parseMarkdown(hostile.deepEmphasis).children[0].children;
+  assert.equal(plainText(deep), hostile.deepEmphasis.replace(/\*/g, ''), 'plain text of a very deep tree, without recursion');
 });
 
 // ---------------------------------------------------------------- updates

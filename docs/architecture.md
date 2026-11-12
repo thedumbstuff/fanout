@@ -39,7 +39,8 @@ interface redraws only the elements whose data differs (`reconcile` in `dom.js`)
 | `main/urls.js`, `useragent.js` | address bar parsing; plain Chrome user agent (pure) |
 | `renderer/app.js` | rail, tab strip, toolbar, panes, status bar |
 | `renderer/files.js` | file tree, selection, drag out, posted marks |
-| `renderer/preview.js` | text preview, select to copy |
+| `renderer/preview.js` | text preview (Markdown formatted or as written), select to copy |
+| `renderer/markdown.js` | Markdown to a plain tree for the preview (pure) |
 | `renderer/dialogs.js` | brand dialog, memory settings |
 
 ## Brands and sessions
@@ -85,6 +86,28 @@ and only their own local pages.
 Dragging a file out is `webContents.startDrag`: a native OS drag of real files. Where
 it is dropped is between the person and the page.
 
+## Text preview and Markdown
+
+Clicking a text file shows its first 512 KB under the tree; selecting text copies it.
+A `.md` or `.markdown` file is shown formatted, the way GitHub shows it, with one
+difference on purpose: every line break inside a paragraph is kept, because a
+caption's lines are part of the caption. **Source** shows the file as it is written; the
+choice lasts while the app runs.
+
+- `markdown.js` turns the text into a plain tree of objects (no DOM, no HTML strings,
+  unit-tested). `preview.js` builds elements from it with `h()`, so every piece of the
+  file reaches the page as a text node. The interface's content policy is unchanged.
+- Raw HTML in a file is shown as text. Pictures are never loaded (no request leaves
+  the app because of a file); their description is shown instead. A link is never
+  followed inside the interface: an `http(s)` link opens as a new tab of the brand
+  (`api.createTab`), any other link is plain text.
+- What is copied is what the view shows: in the formatted view a selection is plain
+  text (no Markdown signs) and "Copy the whole file" copies the text as it reads
+  (`innerText`); in Source both copy the file as written.
+- The text is not kept in a variable: switching views reads the file again. Closing
+  the preview or changing brand drops the elements. Every search in the parser is
+  indexed or bounded; a hostile 512 KB file is read in well under a second.
+
 ## Security
 
 - Interface: sandboxed, context isolated, strict CSP (`script-src 'self'`), cannot navigate.
@@ -99,9 +122,10 @@ it is dropped is between the person and the page.
 
 ## Tests
 
-- `npm test`: 23 unit tests of the pure modules and file access.
-- `npm run smoke`: 47 checks of the real app (lazy loading, sleeping, unsaved-work
-  refusal, file jail, preview copy, posted marks, new-tab links, load errors, split
-  view, tab names, blank tabs, saving, deleting). Opens a window; screenshots in
-  `.smoke/shots`.
+- `npm test`: 30 unit tests of the pure modules (the Markdown parser included) and
+  file access.
+- `npm run smoke`: 54 checks of the real app (lazy loading, sleeping, unsaved-work
+  refusal, file jail, preview copy, Markdown formatted and as written, links and
+  pictures in Markdown, posted marks, new-tab links, load errors, split view, tab names,
+  blank tabs, saving, deleting). Opens a window; screenshots in `.smoke/shots`.
 - `npm run measure`: memory on real sites.

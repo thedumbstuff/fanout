@@ -21,7 +21,9 @@ fs.mkdirSync(SHOTS, { recursive: true });
 fs.mkdirSync(path.join(FOLDER, 'reels'), { recursive: true });
 fs.writeFileSync(path.join(FOLDER, 'launch clip.mp4'), Buffer.alloc(2048));
 fs.writeFileSync(path.join(FOLDER, 'cover.png'), Buffer.alloc(512));
-fs.writeFileSync(path.join(FOLDER, 'caption.md'), 'Big news today.\n\nWe are live in three cities. #launch #acme\n');
+// A caption as people write them: Markdown, and a line of hashtags (not a heading).
+const CAPTION = 'Big news today.\n\nWe are **live** in three cities.\n#launch #acme\n';
+fs.writeFileSync(path.join(FOLDER, 'caption.md'), CAPTION);
 fs.writeFileSync(path.join(FOLDER, 'reels', 'teaser.mov'), Buffer.alloc(1024));
 fs.writeFileSync(path.join(WORK, 'secret.txt'), 'must stay unreadable');
 process.env.FANOUT_USER_DATA = path.join(WORK, 'profile');
@@ -49,10 +51,14 @@ const PAGES = {
     <script>t.addEventListener('input', () => { window.onbeforeunload = (e) => { e.preventDefault(); return 'x'; }; });</script>`,
 };
 
+const requested = []; // every path the test server was asked for
+
 function serve() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
-      const body = PAGES[new URL(req.url, 'http://x').pathname];
+      const { pathname } = new URL(req.url, 'http://x');
+      requested.push(pathname);
+      const body = PAGES[pathname];
       res.writeHead(body ? 200 : 404, { 'content-type': 'text/html; charset=utf-8' });
       res.end(body ?? 'not found');
     });
@@ -63,6 +69,20 @@ function serve() {
 async function run(ctx) {
   const server = await serve();
   const site = `http://127.0.0.1:${server.address().port}`;
+  // Markdown that tries to reach out: a link, a javascript: link, a picture, raw HTML.
+  fs.writeFileSync(path.join(FOLDER, 'reels', 'links.md'), [
+    '## Where to post',
+    '',
+    `- [Site B](${site}/b)`,
+    '- [Not a web page](javascript:alert(1))',
+    `- ![Our logo](${site}/logo.png)`,
+    '- <b onclick="alert(1)">raw html</b>',
+    '',
+    '| Site | Posts |',
+    '| --- | ---: |',
+    '| B | 3 |',
+    '',
+  ].join('\n'));
   const ui = ctx.window.webContents;
   /** Call the bridge from inside the interface, as its own scripts do. */
   const bridge = (method, ...args) =>
@@ -108,20 +128,61 @@ async function run(ctx) {
   check('paths outside the folder are refused', (await bridge('readFile', brand().id, '../secret.txt')).error === 'outside');
   check('absolute paths are refused', (await bridge('readFile', brand().id, path.join(WORK, 'secret.txt'))).error === 'outside');
 
-  await dom(`document.querySelector('#tree [data-name="caption.md"]').click()`);
-  await until(() => dom(`Boolean(document.querySelector('.preview-text'))`), 'preview');
-  check('text file opens in the preview', (await dom(`document.querySelector('.preview-text').textContent`)).startsWith('Big news today.'));
-  await clipboard.writeText('');
-  await dom(`(() => {
-    const node = document.querySelector('.preview-text').firstChild;
+  // ---- text preview: Markdown shown formatted, or as written (Source); select-to-copy in both
+  /** Select in the preview as a drag would (`range` is set up by the script), then let go of the mouse. */
+  const selectIn = (script) => dom(`(() => {
     const range = document.createRange();
-    range.setStart(node, 17); range.setEnd(node, 59);
+    ${script}
     const s = getSelection(); s.removeAllRanges(); s.addRange(range);
-    document.querySelector('.preview-text').dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    document.getElementById('preview').dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   })()`);
-  await until(async () => (await clipboard.readText()).length > 0, 'clipboard');
-  const copied = await clipboard.readText();
-  check('selecting text copies it', copied === 'We are live in three cities. #launch #acme', JSON.stringify(copied));
+  /** What is on the clipboard after doing something. */
+  const copiedAfter = async (act) => {
+    await clipboard.writeText('');
+    await act();
+    await until(async () => (await clipboard.readText()).length > 0, 'clipboard');
+    return (await clipboard.readText()).replace(/\r\n/g, '\n');
+  };
+  const previewButton = (act) => `document.querySelector('#preview [data-act="${act}"]')`;
+
+  await dom(`document.querySelector('#tree [data-name="caption.md"]').click()`);
+  await until(() => dom(`Boolean(document.querySelector('.preview-md'))`), 'preview');
+  check('text file opens in the preview', (await dom(`document.querySelector('.preview-md').textContent`)).startsWith('Big news today.'));
+  const formatted = await dom(`(() => {
+    const md = document.querySelector('.preview-md');
+    return { bold: md.querySelector('strong')?.textContent, headings: md.querySelectorAll('h1, h2, h3, h4, h5, h6').length,
+      paragraphs: [...md.querySelectorAll('p')].map((p) => p.innerText) };
+  })()`);
+  check('a Markdown file is shown formatted; its hashtag line stays text', formatted.bold === 'live' && formatted.headings === 0 &&
+    formatted.paragraphs.join('|') === 'Big news today.|We are live in three cities.\n#launch #acme', JSON.stringify(formatted));
+  const selected = await copiedAfter(() => selectIn(`range.selectNodeContents(document.querySelectorAll('.preview-md p')[1]);`));
+  check('selecting formatted text copies it without Markdown signs', selected === 'We are live in three cities.\n#launch #acme',
+    JSON.stringify(selected));
+  const readsTitle = await dom(`${previewButton('copy-all')}.title`);
+  const reads = await copiedAfter(() => dom(`${previewButton('copy-all')}.click()`));
+  check('copying the whole formatted file copies it as it reads, and says so',
+    reads === 'Big news today.\n\nWe are live in three cities.\n#launch #acme' && /without the Markdown/.test(readsTitle), JSON.stringify(reads));
+  await shot('03-markdown-formatted');
+
+  await dom(`${previewButton('source')}.click()`);
+  await until(() => dom(`Boolean(document.querySelector('#preview .preview-text'))`), 'source view');
+  const [from, to] = [CAPTION.indexOf('We are'), CAPTION.indexOf('#acme') + '#acme'.length];
+  const raw = await copiedAfter(() => selectIn(`
+    const node = document.querySelector('.preview-text').firstChild;
+    range.setStart(node, ${from}); range.setEnd(node, ${to});`));
+  check('Source shows the file as it is written; selecting there copies the Markdown',
+    await dom(`document.querySelector('.preview-text').textContent`) === CAPTION && raw === CAPTION.slice(from, to) &&
+    await dom(`${previewButton('source')}.getAttribute('aria-pressed') === 'true'`), JSON.stringify(raw));
+  const writtenTitle = await dom(`${previewButton('copy-all')}.title`);
+  const written = await copiedAfter(() => dom(`${previewButton('copy-all')}.click()`));
+  check('copying the whole file in Source copies it exactly as written, and says so',
+    written === CAPTION && /as it is written/.test(writtenTitle), JSON.stringify(written));
+  await dom(`document.querySelector('#preview .tool[title="Close"]').click()`);
+  await dom(`document.querySelector('#tree [data-name="caption.md"]').click()`);
+  await until(() => dom(`Boolean(document.querySelector('#preview .preview-text'))`), 'the file again');
+  check('the Source choice is kept for the next file opened', await dom(`${previewButton('source')}?.getAttribute('aria-pressed') === 'true'`));
+  await dom(`${previewButton('source')}.click()`);
+  await until(() => dom(`Boolean(document.querySelector('#preview .preview-md'))`), 'formatted again');
 
   // ---- posted tracker
   await dom(`document.querySelector('#tree [data-name="launch clip.mp4"] .mark').click()`);
@@ -137,6 +198,34 @@ async function run(ctx) {
   check('a subfolder opens on demand', ctx.watcher.size === 2, `${ctx.watcher.size} folders watched`);
   await wait(300);
   await shot('03-files-posted');
+
+  // ---- Markdown cannot reach out: no picture is fetched, HTML is text, only web links open
+  await dom(`document.querySelector('#tree [data-name="links.md"]').click()`);
+  await until(() => dom(`Boolean(document.querySelector('#preview .md-link'))`), 'links file');
+  await wait(300);
+  const safe = await dom(`(() => {
+    const md = document.querySelector('.preview-md');
+    return { images: md.querySelectorAll('img').length, picture: md.querySelector('.md-picture')?.textContent,
+      bold: md.querySelectorAll('b').length, html: md.textContent.includes('<b onclick="alert(1)">raw html</b>'),
+      heading: md.querySelector('h2')?.textContent, cells: [...md.querySelectorAll('th, td')].map((c) => c.textContent).join(),
+      right: md.querySelector('td.is-right')?.textContent };
+  })()`);
+  check('pictures are not fetched, raw HTML is text, a table is drawn',
+    safe.images === 0 && safe.picture === 'Our logo' && safe.bold === 0 && safe.html && safe.heading === 'Where to post' &&
+    safe.cells === 'Site,Posts,B,3' && safe.right === '3' && !requested.includes('/logo.png'), JSON.stringify(safe));
+  await shot('03-markdown-links');
+  const tabsBefore = brand().tabs.length;
+  await dom(`getSelection().removeAllRanges(); document.querySelector('#preview .md-link-off').click()`);
+  await wait(400);
+  const inert = brand().tabs.length === tabsBefore && await dom(`document.querySelector('#preview .md-link-off').tagName === 'SPAN'`);
+  await dom(`getSelection().removeAllRanges(); document.querySelector('#preview .md-link').click()`);
+  await until(() => brand().tabs.length === tabsBefore + 1, 'a tab from the link');
+  const fromLink = brand().tabs.at(-1);
+  check('a web link opens as a new tab of the brand; a javascript: link does nothing',
+    inert && fromLink?.url === `${site}/b` && brand().activeTabId === fromLink?.id, fromLink?.url);
+  await bridge('closeTab', fromLink.id);
+  await until(() => brand().tabs.length === tabsBefore, 'that tab closed');
+  await bridge('selectTab', a.id);
 
   // ---- memory: limit of one loaded tab
   await bridge('selectTab', b.id);

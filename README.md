@@ -15,7 +15,8 @@ fanout keeps each brand in its own compartment:
 - **A file panel per brand**, pinned to the folder that brand posts from. Drag a file
   onto any page that accepts uploads, exactly as you would from Explorer or Finder.
 - **Caption files open in place.** Click a `.txt` or `.md` file to read it; select any
-  part of the text and it is copied.
+  part of the text and it is copied. Markdown is shown formatted (Source shows it as
+  written), and what you copy from it is plain text, ready for a caption box.
 - **A posted tracker.** Tick which file has gone where; hide what is posted everywhere.
 - **It updates itself**: new versions download in the background and install on restart.
 - **Tabs you are not using go to sleep** and give their memory back. A tab that is
