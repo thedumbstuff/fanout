@@ -11,7 +11,7 @@
 // left alone until its owner has looked at it again.
 
 import { WebContentsView, app, dialog } from 'electron';
-import { addTab, findBrand, findTab, focusPane, removeTab, setPaneCount, setSplit, showTab } from './model.js';
+import { addTab, findBrand, findTab, focusPane, nameFor, removeTab, setPaneCount, setSplit, showTab } from './model.js';
 import { pickTabsToSleep } from './sleeper.js';
 import { isWebUrl, toUrl } from './urls.js';
 
@@ -205,10 +205,13 @@ export class TabManager {
     this.#changed();
   }
 
-  rename(tabId, name) {
+  /** Give a tab a name of its own; text it would show anyway clears the name instead (nameFor). */
+  rename(tabId, typed) {
     const found = findTab(this.#store.data, tabId);
     if (!found) return;
-    found.tab.name = String(name ?? '').trim().slice(0, 40);
+    const name = nameFor(found.tab, typed);
+    if (name === found.tab.name) return;
+    found.tab.name = name;
     this.#store.touch();
     this.#changed();
   }

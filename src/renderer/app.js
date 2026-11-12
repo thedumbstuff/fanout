@@ -3,7 +3,7 @@
 // whenever it changes; this file only draws it and passes on what is clicked.
 
 import { openBrandDialog, openNotesDialog, openSettingsDialog, updateMessage } from './dialogs.js';
-import { h, icon, initials, inkOn, reconcile, tabLabel } from './dom.js';
+import { h, icon, initials, inkOn, reconcile, renameText } from './dom.js';
 import { FilePanel } from './files.js';
 
 const api = window.fanout;
@@ -134,7 +134,7 @@ function renderTabs() {
   const tabs = brand?.tabs ?? [];
   const draw = {
     key: (tab) => tab.id,
-    signature: (tab) => [tabLabel(tab), tab.favicon, tab.id === brand.activeTabId, brand.panes.includes(tab.id), tab.live, tab.loading,
+    signature: (tab) => [tab.label, tab.favicon, tab.id === brand.activeTabId, brand.panes.includes(tab.id), tab.live, tab.loading,
       tab.audible, tab.keepAwake, tab.temp, tab.url, metrics.tabs[tab.id] ?? ''].join('|'),
     create: (tab) => tabElement(tab, tab.id === brand.activeTabId, brand.panes.includes(tab.id)),
   };
@@ -153,7 +153,7 @@ function renderTabs() {
 }
 
 function tabElement(tab, selected, onScreen) {
-  const label = tabLabel(tab);
+  const { label } = tab;
   const asleep = !tab.live && Boolean(tab.url);
   const memory = metrics.tabs[tab.id];
   const tip = [label, tab.url, asleep ? 'Asleep: uses no memory, loads when opened' : memory ? `${memory} MB` : '',
@@ -195,11 +195,18 @@ function renameTab(tabId) {
   const el = $('tabs').querySelector(`[data-id="${tabId}"] .tab-label`);
   if (!tab || !el) return;
   renamingTabId = tabId;
-  const input = h('input', { class: 'tab-rename', type: 'text', value: tab.name || tabLabel(tab), maxLength: 40 });
+  const before = tab.label;
+  const input = h('input', { class: 'tab-rename', type: 'text', value: before, maxLength: 40 });
   const finish = async (save) => {
     if (renamingTabId !== tabId) return;
     renamingTabId = null;
-    if (save) await api.renameTab(tabId, input.value);
+    // Closing the box with its text unchanged, or with Escape, changes nothing.
+    // (Saving what it opened with froze "New tab" or a page title as a name.)
+    const typed = save ? renameText(before, input.value) : null;
+    // A label goes back at once: when the name did not change, no new state
+    // redraws this tab, and the text box would otherwise stay in it.
+    el.replaceChildren(typed || before);
+    if (typed !== null) await api.renameTab(tabId, typed);
     renderTabs();
   };
   input.addEventListener('keydown', (e) => {
@@ -317,7 +324,7 @@ function renderPanes() {
   page.style.setProperty('--sy', String(dragSplit?.y ?? brand?.splitY ?? 0.5));
 
   const signature = JSON.stringify([brand?.id, brand?.name, brand?.focus, tabs.map((tab) =>
-    [paneKind(brand, tab), tab?.id, tab && tabLabel(tab), tab?.favicon, tab?.error?.description, tab?.error?.url])]);
+    [paneKind(brand, tab), tab?.id, tab?.label, tab?.favicon, tab?.error?.description, tab?.error?.url])]);
   if (signature !== panesSignature) {
     panesSignature = signature;
     // The two dividers stay in place so that a drag survives a redraw.
@@ -337,7 +344,7 @@ function paneElement(brand, tab, index, count) {
   },
   count > 1 ? h('header', { class: 'pane-head', title: tab?.url || '' },
     tab?.favicon ? h('img', { class: 'favicon', src: tab.favicon, alt: '', onerror: (e) => e.target.remove() }) : null,
-    h('span', { class: 'pane-title' }, tab ? tabLabel(tab) : 'Empty')) : null,
+    h('span', { class: 'pane-title' }, tab ? tab.label : 'Empty')) : null,
   h('div', { class: 'pane-body' }, h('div', { class: 'page-note' }, paneNote(kind, brand, tab, index))));
 }
 

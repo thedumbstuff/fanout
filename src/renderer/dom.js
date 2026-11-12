@@ -120,9 +120,16 @@ export function inkOn(hex) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#070705' : '#f7f1e4';
 }
 
-/** The name a tab goes by: its own name, else the page title, else the site. */
-export function tabLabel(tab) {
-  return tab.name || tab.title || tab.site || 'New tab';
+/**
+ * What a tab's rename box sends when it closes: null when the text is still
+ * what the box opened with (nothing to save), else the new text, where ''
+ * clears the tab's name. Only a change the person made can become a name; the
+ * main process decides the rest (nameFor in main/model.js). A tab's label
+ * itself comes from the main process, as `tab.label`.
+ */
+export function renameText(before, typed) {
+  const text = String(typed ?? '').trim();
+  return text === String(before ?? '').trim() ? null : text;
 }
 
 /** The short name of a posting destination. */

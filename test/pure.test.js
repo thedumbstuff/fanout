@@ -8,9 +8,10 @@ import { test } from 'node:test';
 
 import { decode, fileKind, FolderWatcher, listDir, readText, MAX_TEXT_BYTES } from '../src/main/files.js';
 import {
-  addTab, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, focusPane, removeTab, sanitize,
-  setPaneCount, setSplit, showTab,
+  addTab, autoLabel, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, focusPane, isBlank, nameFor,
+  removeTab, sanitize, setPaneCount, setSplit, showTab, tabLabel, UNNAMED_TAB,
 } from '../src/main/model.js';
+import { renameText } from '../src/renderer/dom.js';
 import { notesText, whatsNew } from '../src/main/notes.js';
 import { notesFor } from '../tools/release.mjs';
 import { isInside, OutsideFolderError, resolveInside, toRel } from '../src/main/pathjail.js';
@@ -242,17 +243,125 @@ test('data from disk is repaired, not trusted', () => {
   const [brand] = data.brands;
   assert.equal(data.activeBrandId, brand.id);
   assert.equal(brand.folder, '');
-  assert.deepEqual(brand.tabs.map((t) => t.id), ['t_0123456789', 't_2222222222']);
+  assert.deepEqual(brand.tabs.map((t) => t.id), ['t_0123456789'],
+    'the javascript: tab is left blank, and a blank tab in no pane is dropped');
   assert.equal(brand.tabs[0].favicon, '');
   assert.equal(brand.tabs[0].keepAwake, false);
   assert.equal(brand.tabs[0].homeUrl, 'https://x.example/');
-  assert.equal(brand.tabs[1].url, '');
   assert.equal(brand.activeTabId, 't_0123456789');
   assert.deepEqual(data.settings, { ...cleanSettings(), sleepAfterMinutes: 0, maxLiveTabs: 50, hidePosted: true });
   assert.deepEqual(data.permissions, { 'b|https://a|media': true });
   assert.deepEqual(data.window, { width: 900, height: 700, x: undefined, y: undefined, maximized: false });
   assert.deepEqual(sanitize(null), defaults());
   assert.deepEqual(sanitize('garbage'), defaults());
+});
+
+test('tab names: only text the person changed, that the tab would not show anyway, becomes a name', () => {
+  const blank = { name: '', title: '', url: '', homeUrl: '' };
+  const insta = { name: '', title: 'Instagram', url: 'https://www.instagram.com/', homeUrl: 'https://www.instagram.com/' };
+  const asleep = { name: '', title: '', url: 'https://www.tiktok.com/upload', homeUrl: 'https://www.tiktok.com/upload' };
+  assert.equal(tabLabel(blank), UNNAMED_TAB);
+  assert.equal(tabLabel(insta), 'Instagram');
+  assert.equal(tabLabel(asleep), 'Tiktok', 'no title yet: the site');
+  assert.equal(tabLabel({ ...insta, name: 'Acme IG' }), 'Acme IG');
+  assert.equal(autoLabel({ ...insta, name: 'Acme IG' }), 'Instagram', 'what it shows without its name');
+
+  // The interface: a box closed with its text unchanged sends nothing.
+  assert.equal(renameText(UNNAMED_TAB, UNNAMED_TAB), null);
+  assert.equal(renameText('Instagram', '  Instagram '), null, 'spaces are not a change');
+  assert.equal(renameText('Instagram', 'Acme IG'), 'Acme IG');
+  assert.equal(renameText('Acme IG', '   '), '', 'emptying the box is a change: it clears the name');
+
+  // The main process: a name is kept only if it differs from what the tab shows anyway.
+  assert.equal(nameFor(blank, UNNAMED_TAB), '', 'the placeholder is never a name');
+  assert.equal(nameFor(insta, UNNAMED_TAB), '');
+  assert.equal(nameFor(insta, ' Instagram '), '', 'the page title is not a name of its own');
+  assert.equal(nameFor(asleep, 'Tiktok'), '', 'nor is the site');
+  assert.equal(nameFor(insta, ''), '', 'empty text clears the name');
+  assert.equal(nameFor(insta, '  Acme IG  '), 'Acme IG');
+  assert.equal(nameFor({ ...insta, name: 'Acme IG' }, 'Instagram'), '', 'typing the title back undoes a name');
+  assert.equal(nameFor(insta, 'x'.repeat(60)).length, 40);
+  assert.equal(nameFor(insta, 7), '', 'not text');
+});
+
+test('repair on load: a saved "New tab" name and a stray blank tab are dropped', () => {
+  // What a build before this fix could save: a blank tab named "New tab" by
+  // accident that then loaded Instagram, and a blank tab outside every pane.
+  const [brand] = sanitize({ brands: [{
+    id: 'b_0123456789', name: 'Acme', panes: ['t_aaaaaaaaaa', 't_bbbbbbbbbb', 't_dddddddddd'], focus: 1,
+    tabs: [
+      { id: 't_aaaaaaaaaa', name: '', title: 'YouTube', url: 'https://studio.youtube.com/', homeUrl: 'https://studio.youtube.com/' },
+      { id: 't_bbbbbbbbbb', name: 'New tab', title: 'Instagram', url: 'https://www.instagram.com/', homeUrl: 'https://www.instagram.com/' },
+      { id: 't_cccccccccc', name: '', title: '', url: '', homeUrl: '' },
+      { id: 't_dddddddddd', name: '', title: '', url: 'javascript:alert(1)' },
+      { id: 't_eeeeeeeeee', name: 'Draft', title: '', url: '' },
+    ],
+  }] }).brands;
+  const insta = brand.tabs.find((tab) => tab.id === 't_bbbbbbbbbb');
+  assert.equal(insta.name, '');
+  assert.equal(tabLabel(insta), 'Instagram', 'the tab follows its page again');
+  assert.deepEqual(brand.tabs.map((tab) => tab.id), ['t_aaaaaaaaaa', 't_bbbbbbbbbb', 't_dddddddddd', 't_eeeeeeeeee'],
+    'the blank tab in no pane goes; a blank tab in a pane and a named one stay');
+  assert.ok(isBlank(brand.tabs[2]), 'a refused address in a pane leaves a blank tab there');
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId],
+    [['t_aaaaaaaaaa', 't_bbbbbbbbbb', 't_dddddddddd'], 1, 't_bbbbbbbbbb'], 'the layout is untouched');
+  const near = sanitize({ brands: [{ id: 'b_0123456789', tabs: [{ id: 't_aaaaaaaaaa', name: 'New tabs' }] }] });
+  assert.equal(near.brands[0].tabs[0].name, 'New tabs', 'only the placeholder itself is dropped');
+});
+
+test('blank tabs live only in panes: one that loses its pane is removed', () => {
+  const data = defaults();
+  const brand = createBrand(data, { name: 'Blank', urls: ['https://a.example/', 'https://b.example/'] });
+  const [a, b] = brand.tabs.map((tab) => tab.id);
+  const ids = () => brand.tabs.map((tab) => tab.id);
+  const consistent = () => {
+    const placed = brand.panes.filter(Boolean);
+    assert.ok(placed.every((id) => ids().includes(id)), 'every pane holds a tab of the brand, or nothing');
+    assert.equal(new Set(placed).size, placed.length, 'a tab is in one pane at most');
+    assert.equal(brand.activeTabId, brand.panes[brand.focus], 'activeTabId is the focused pane');
+  };
+
+  const blank = addTab(brand).id; // the new-tab button: a blank tab in the focused pane
+  showTab(brand, blank);
+  assert.deepEqual(brand.panes, [blank]);
+  showTab(brand, b);
+  assert.deepEqual(ids(), [a, b], 'another tab took its pane: no stray "New tab" in the strip');
+  consistent();
+
+  const first = addTab(brand).id;
+  showTab(brand, first);
+  const second = addTab(brand).id;
+  showTab(brand, second);
+  assert.deepEqual(ids(), [a, b, second], 'two new tabs in a row do not pile up');
+  consistent();
+
+  setPaneCount(brand, 3);
+  assert.deepEqual(brand.panes, [second, a, b]);
+  showTab(brand, b);
+  focusPane(brand, 1);
+  assert.ok(ids().includes(second), 'a blank tab on screen stays while other panes are used');
+  setPaneCount(brand, 1);
+  assert.deepEqual([brand.panes, ids()], [[a], [a, b]], 'fewer panes: the blank tab that lost its pane is removed');
+  consistent();
+
+  setPaneCount(brand, 2);
+  removeTab(brand, b);
+  assert.deepEqual(brand.panes, [a, null]);
+  focusPane(brand, 1);
+  const here = addTab(brand); // "Open a new tab here" in the empty pane
+  showTab(brand, here.id);
+  focusPane(brand, 0);
+  assert.deepEqual(brand.panes, [a, here.id], 'focusing another pane moves nothing');
+  here.url = here.homeUrl = 'https://c.example/'; // what navigating does
+  setPaneCount(brand, 1);
+  assert.ok(brand.tabs.includes(here), 'a tab that got an address is kept');
+
+  const named = addTab(brand);
+  showTab(brand, named.id);
+  named.name = 'Later';
+  showTab(brand, a);
+  assert.ok(brand.tabs.includes(named), 'a blank tab the person named is kept');
+  consistent();
 });
 
 // ---------------------------------------------------------------- updates

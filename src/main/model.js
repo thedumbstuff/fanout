@@ -3,7 +3,7 @@
 // Electron. main.js owns the one live copy and saves it through store.js.
 
 import { randomBytes } from 'node:crypto';
-import { isWebUrl } from './urls.js';
+import { isWebUrl, siteName } from './urls.js';
 
 export const BRAND_COLORS = [
   '#fb5f89', '#f7d31c', '#2f6fed', '#18a36b', '#f2792b', '#8a4fff', '#12a5b8', '#b99468',
@@ -70,12 +70,51 @@ export function cleanSettings(input, base = DEFAULT_SETTINGS) {
 const text = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 const webUrl = (value) => (isWebUrl(value) ? value : '');
 
+// ------------------------------------------------------------- tab names
+//
+// A tab goes by its own name if it has one, else its page's title, else its
+// site, else UNNAMED_TAB. A name of its own is the exception: it is kept only
+// when the person typed something the tab would not show anyway, so that an
+// unnamed tab goes on following its page.
+
+/** What a tab with no name, no title and no address is called. Never saved as a name. */
+export const UNNAMED_TAB = 'New tab';
+const MAX_TAB_NAME = 40;
+
+/** What a tab shows when it has no name of its own. */
+export function autoLabel(tab) {
+  return tab.title || siteName(tab.homeUrl || tab.url) || UNNAMED_TAB;
+}
+
+/** The name a tab goes by, in the tab strip and over its pane. */
+export function tabLabel(tab) {
+  return tab.name || autoLabel(tab);
+}
+
+/**
+ * The name to keep for what was typed in a tab's rename box. Empty text, the
+ * placeholder, or exactly what the tab shows without a name all mean "no name
+ * of its own" (''), so the tab goes back to following its page.
+ */
+export function nameFor(tab, typed) {
+  const name = typeof typed === 'string' ? typed.trim() : '';
+  return name === UNNAMED_TAB || name === autoLabel(tab) ? '' : text(name, MAX_TAB_NAME);
+}
+
+/** A tab that never got an address or a name: it holds nothing once it is in no pane. */
+export function isBlank(tab) {
+  return !tab.url && !tab.homeUrl && !tab.name;
+}
+
 function cleanTab(raw) {
   if (!raw || typeof raw !== 'object' || !TAB_ID.test(raw.id) || raw.temp) return null;
   const url = webUrl(raw.url);
+  const name = text(raw.name, MAX_TAB_NAME);
   return {
     id: raw.id,
-    name: text(raw.name, 40),
+    // Earlier builds saved the placeholder as a name when a blank tab's rename
+    // box was closed unchanged; that name then hid every title the tab got later.
+    name: name === UNNAMED_TAB ? '' : name,
     homeUrl: webUrl(raw.homeUrl) || url,
     url,
     title: text(raw.title, 200),
@@ -88,7 +127,7 @@ function cleanTab(raw) {
 function cleanBrand(raw, index) {
   if (!raw || typeof raw !== 'object' || !BRAND_ID.test(raw.id)) return null;
   const seen = new Set();
-  const tabs = (Array.isArray(raw.tabs) ? raw.tabs : [])
+  let tabs = (Array.isArray(raw.tabs) ? raw.tabs : [])
     .map(cleanTab)
     .filter((tab) => tab && !seen.has(tab.id) && seen.add(tab.id));
   // Panes: each holds one tab or nothing, and a tab is in at most one pane.
@@ -96,6 +135,8 @@ function cleanBrand(raw, index) {
   let panes = (Array.isArray(raw.panes) ? raw.panes : []).slice(0, MAX_PANES).map((id) =>
     (seen.has(id) && !placed.has(id) && placed.add(id) ? id : null));
   if (!panes.length) panes = [seen.has(raw.activeTabId) ? raw.activeTabId : (tabs[0]?.id ?? null)];
+  // A blank tab in no pane was left behind by an older version (see showTab).
+  tabs = tabs.filter((tab) => !isBlank(tab) || panes.includes(tab.id));
   const focus = Number.isInteger(raw.focus) && raw.focus >= 0 && raw.focus < panes.length ? raw.focus : 0;
 
   return {
@@ -131,12 +172,29 @@ function ratio(value) {
 // `splitX` and `splitY` are where the two dividers sit. `focus` is the pane
 // the address bar and the tab strip act on; `activeTabId` is always the tab
 // in that pane (or null) and is kept only so callers need not look it up.
+//
+// A blank tab (isBlank) lives only in a pane: when another tab takes its pane
+// or its pane is taken away, it is removed rather than left in the tab strip
+// as a stray "New tab". It never has a page, so there is nothing to close.
+
+/** Remove the given tabs that are blank and in no pane any more. */
+function dropStrayBlanks(brand, tabIds) {
+  for (const id of tabIds) {
+    const index = brand.tabs.findIndex((tab) => tab.id === id);
+    if (index !== -1 && isBlank(brand.tabs[index]) && !brand.panes.includes(id)) brand.tabs.splice(index, 1);
+  }
+}
 
 /** Show a tab: if a pane already has it, focus that pane; else put it in the focused one. */
 export function showTab(brand, tabId) {
   const at = brand.panes.indexOf(tabId);
-  if (at !== -1) brand.focus = at;
-  else brand.panes[brand.focus] = tabId;
+  if (at !== -1) {
+    brand.focus = at;
+  } else {
+    const displaced = brand.panes[brand.focus];
+    brand.panes[brand.focus] = tabId;
+    dropStrayBlanks(brand, [displaced]);
+  }
   brand.activeTabId = tabId;
 }
 
@@ -153,6 +211,7 @@ export function focusPane(brand, index) {
 export function setPaneCount(brand, count) {
   const wanted = Math.min(MAX_PANES, Math.max(1, Math.round(Number(count)) || 1));
   const focused = brand.panes[brand.focus];
+  const before = brand.panes;
   const panes = brand.panes.slice(0, wanted);
   if (focused && !panes.includes(focused)) panes[wanted - 1] = focused;
   const spare = brand.tabs.map((tab) => tab.id).filter((id) => !panes.includes(id));
@@ -160,6 +219,7 @@ export function setPaneCount(brand, count) {
   brand.panes = panes;
   brand.focus = focused ? panes.indexOf(focused) : Math.min(brand.focus, wanted - 1);
   brand.activeTabId = panes[brand.focus];
+  dropStrayBlanks(brand, before);
 }
 
 export function setSplit(brand, { x, y } = {}) {

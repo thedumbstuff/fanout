@@ -9,6 +9,7 @@ import { app, clipboard } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { UNNAMED_TAB } from '../src/main/model.js';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const WORK = path.join(ROOT, '.smoke');
@@ -253,6 +254,60 @@ async function run(ctx) {
   check('separate tabs: one page on screen', ctx.store.data.brands[1].panes.length === 1);
   await ctx.deleteBrand(ctx.store.data.brands[1].id, { ask: false });
   await bridge('selectBrand', brand().id);
+
+  // ---- new tabs: named by their page, not by a rename box left as it was
+  const tabOf = (id) => brand().tabs.find((tab) => tab.id === id);
+  /** The tab's label in the strip and over the focused pane. */
+  const labels = async (id) => (await dom(`[document.querySelector('#tabs [data-id="${id}"] .tab-label')?.textContent,
+    document.querySelector('#page .pane.is-focused .pane-title')?.textContent]`)).join(' / ');
+  /** Open a tab's rename box as a double-click does, type (or not), press Enter. Returns what the box opened with. */
+  const rename = (id, typed = null) => dom(`(() => {
+    document.querySelector('#tabs [data-id="${id}"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const box = document.querySelector('#tabs .tab-rename');
+    const opened = box.value;
+    const typed = ${JSON.stringify(typed)};
+    if (typed !== null) box.value = typed;
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return opened;
+  })()`);
+
+  const fresh = await bridge('createTab', brand().id);
+  await until(() => dom(`Boolean(document.querySelector('#tabs [data-id="${fresh}"]'))`), 'new tab in the strip');
+  const boxText = await rename(fresh);
+  await wait(300);
+  const untouched = await labels(fresh);
+  check("a new tab's rename box closed unchanged saves no name, and goes away",
+    boxText === UNNAMED_TAB && tabOf(fresh).name === '' && untouched === `${UNNAMED_TAB} / ${UNNAMED_TAB}` &&
+    await dom(`document.querySelector('.tab-rename') === null`), untouched);
+  await bridge('navigate', fresh, `${site}/b`);
+  await until(() => tabOf(fresh).title === 'Site B', 'new tab has its page title');
+  await wait(300);
+  const titled = await labels(fresh);
+  const address = await dom(`document.getElementById('address').value`);
+  check('given an address, it goes by its page title in the strip and over its pane',
+    titled === 'Site B / Site B' && address === `${site}/b`, `${titled}; ${address}`);
+  await rename(fresh, '  Acme reels ');
+  await until(async () => (await labels(fresh)) === 'Acme reels / Acme reels', 'typed name shown');
+  const typedName = tabOf(fresh).name;
+  await shot('08-tab-names');
+  await rename(fresh, '');
+  await until(async () => (await labels(fresh)) === 'Site B / Site B', 'name cleared');
+  check('a typed name is kept; emptying the box gives the page title back',
+    typedName === 'Acme reels' && tabOf(fresh).name === '', await labels(fresh));
+
+  // ---- a blank tab lives only in a pane
+  const stray = await bridge('createTab', brand().id);
+  await bridge('createBrand', { name: 'Elsewhere', color: '#8a4fff', folder: '', urls: [] });
+  const awayWhile = ctx.store.data.activeBrandId !== brand().id && brand().panes.includes(stray);
+  await ctx.deleteBrand(ctx.store.data.brands[1].id, { ask: false });
+  check('a blank tab stays in its pane while another brand is shown', awayWhile && Boolean(tabOf(stray)));
+  await bridge('selectTab', b.id);
+  await wait(300);
+  check('a blank tab whose pane another tab takes is removed; a tab with a page stays',
+    !tabOf(stray) && Boolean(tabOf(fresh)) && brand().panes.join() === [a.id, b.id].join() &&
+    await dom(`document.querySelector('#tabs [data-id="${stray}"]') === null`), brand().tabs.map((tab) => tab.title || 'blank').join());
+  await bridge('closeTab', fresh);
+  await until(() => !tabOf(fresh), 'extra tab closed');
 
   await ctx.deleteBrand(brand().id, { ask: false });
   await wait(500);

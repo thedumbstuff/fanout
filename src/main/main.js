@@ -17,7 +17,7 @@ import path from 'node:path';
 import { FolderWatcher } from './files.js';
 import { registerIpc } from './ipc.js';
 import { buildAppMenu } from './menus.js';
-import { BRAND_COLORS, deleteBrand, findBrand, sanitize } from './model.js';
+import { BRAND_COLORS, deleteBrand, findBrand, sanitize, tabLabel } from './model.js';
 import { hardenPage } from './pages.js';
 import { PostedStore } from './posted.js';
 import { BrandSessions } from './sessions.js';
@@ -131,6 +131,7 @@ async function boot() {
       splitY: brand.splitY,
       tabs: brand.tabs.map((tab) => ({
         ...tab,
+        label: tabLabel(tab), // the one place a tab's shown name is worked out
         site: siteName(tab.homeUrl || tab.url),
         ...ctx.tabs.runtime(tab.id),
       })),
