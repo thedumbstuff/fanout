@@ -131,12 +131,24 @@ async function editBrand(brandId) {
 function renderTabs() {
   if (renamingTabId) return; // do not pull the text box out from under the person typing
   const brand = activeBrand();
-  reconcile($('tabs'), brand?.tabs ?? [], {
+  const tabs = brand?.tabs ?? [];
+  const draw = {
     key: (tab) => tab.id,
     signature: (tab) => [tabLabel(tab), tab.favicon, tab.id === brand.activeTabId, brand.panes.includes(tab.id), tab.live, tab.loading,
       tab.audible, tab.keepAwake, tab.temp, tab.url, metrics.tabs[tab.id] ?? ''].join('|'),
     create: (tab) => tabElement(tab, tab.id === brand.activeTabId, brand.panes.includes(tab.id)),
-  });
+  };
+
+  // The tabs on screen together form one group, in the order of their panes
+  // (left to right, top to bottom); the tabs waiting their turn follow it.
+  const split = (brand?.panes.length ?? 1) > 1;
+  const together = split ? brand.panes.map((id) => tabs.find((tab) => tab.id === id)).filter(Boolean) : [];
+  const group = $('tab-group');
+  group.hidden = !together.length;
+  group.title = `These ${together.length} pages are on screen together`;
+  if (brand) group.style.setProperty('--brand', brand.color);
+  reconcile(group, together, draw);
+  reconcile($('tab-rest'), tabs.filter((tab) => !together.includes(tab)), draw);
   $('new-tab').disabled = !brand;
 }
 

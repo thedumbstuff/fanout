@@ -236,6 +236,10 @@ async function run(ctx) {
   await until(() => together.panes.every((id) => idle({ id })), 'four panes loaded');
   check('side by side: four of five starter tabs on screen, the fifth waits', together.panes.length === 4 &&
     together.panes.every((id) => live({ id })) && !live(together.tabs[4]));
+  await bridge('selectBrand', together.id);
+  await wait(400);
+  check('the tabs on screen are one group in the tab strip, the waiting tab outside it',
+    await dom(`document.querySelectorAll('#tab-group .tab').length === 4 && document.querySelectorAll('#tab-rest .tab').length === 1 && !document.getElementById('tab-group').hidden`));
   await shot('07-added-side-by-side');
   await ctx.deleteBrand(together.id, { ask: false });
   await bridge('createBrand', { name: 'Apart', color: '#18a36b', folder: '', together: false, urls: [`${site}/a`, `${site}/b`] });

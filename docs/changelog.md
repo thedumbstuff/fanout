@@ -12,6 +12,8 @@ puts it in the update feed, and fanout shows it after updating.
 - After an update, the status bar offers what is new.
 - Adding a brand asks how its starter tabs open: side by side in one window (up to four)
   or one at a time as separate tabs.
+- The tabs that are on screen together are shown as one group in the tab strip, outlined
+  in the brand's colour and in the order of their panes.
 - Smaller installer.
 
 ## 0.1.0 - 2026-11-12
