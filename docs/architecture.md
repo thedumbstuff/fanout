@@ -92,7 +92,7 @@ it is dropped is between the person and the page.
 ## Tests
 
 - `npm test`: 20 unit tests of the pure modules and file access.
-- `npm run smoke`: 40 checks of the real app (lazy loading, sleeping, unsaved-work
+- `npm run smoke`: 42 checks of the real app (lazy loading, sleeping, unsaved-work
   refusal, file jail, preview copy, posted marks, new-tab links, load errors, split
   view, saving, deleting). Opens a window; screenshots in `.smoke/shots`.
 - `npm run measure`: memory on real sites.

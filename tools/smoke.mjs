@@ -240,6 +240,13 @@ async function run(ctx) {
   await wait(400);
   check('the tabs on screen are one group in the tab strip, the waiting tab outside it',
     await dom(`document.querySelectorAll('#tab-group .tab').length === 4 && document.querySelectorAll('#tab-rest .tab').length === 1 && !document.getElementById('tab-group').hidden`));
+  const gap = await dom(`(() => {
+    const last = [...document.querySelectorAll('#tabs .tab')].pop().getBoundingClientRect();
+    return Math.round(document.getElementById('new-tab').getBoundingClientRect().left - last.right);
+  })()`);
+  check('the new-tab button sits right after the last tab', gap >= 0 && gap <= 16, `${gap}px apart`);
+  const tabWidth = await dom(`Math.round(document.querySelector('#tab-group .tab').getBoundingClientRect().width)`);
+  check('grouped tabs keep their full width when there is room', tabWidth >= 140, `${tabWidth}px`);
   await shot('07-added-side-by-side');
   await ctx.deleteBrand(together.id, { ask: false });
   await bridge('createBrand', { name: 'Apart', color: '#18a36b', folder: '', together: false, urls: [`${site}/a`, `${site}/b`] });
