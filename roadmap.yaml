@@ -57,9 +57,9 @@ open_decisions:
   - id: D4
     title: Google sign-in inside fanout
     status: open
-    why: "Google sometimes refuses sign-in in embedded browsers. Tabs present a plain Chrome user agent, which usually suffices, but only a real sign-in by the owner proves it. If refused: open that one sign-in in the system browser, or another fallback."
+    why: "2026-11-12: with the plain Chrome user agent (the disguise 0.2.0 shipped with), Google refused the owner's YouTube sign-in: 'Couldn't sign you in. This browser or app may not be secure.' Google's rules for accounts.google.com require a browser to identify itself in its user agent, forbid using another browser's (Chrome's), and forbid rewriting headers; other Electron apps fixed the same error by dropping their disguise. Changed: pages now get Electron's own user agent unchanged (fanout/0.2.0 Chrome/156 Electron/45.3.0), the same in headers and page JavaScript; Electron sends no Sec-CH-UA headers; a unit test forbids overrides. Stays open until the owner signs in. Google's rules also disallow sign-in from embedded frameworks, so it may still refuse; then: open that one sign-in in the system browser, or another fallback - not another disguise."
     blocks: [P5.1]
-    default: keep the plain Chrome user agent; add a fallback only if the owner's test fails
+    default: keep fanout's own user agent; add a fallback only if the owner's sign-in still fails
   - id: D5
     title: Code signing
     status: open
@@ -112,12 +112,12 @@ phases:
           - {type: path, path: src/main/store.js}
           - {type: cmd, run: "npm test --silent"}
       - id: P1.2
-        title: One browser session per brand (cookies, storage, cache), plain Chrome user agent, permission prompts remembered per brand and site
+        title: One browser session per brand (cookies, storage, cache), fanout's own user agent unchanged, permission prompts remembered per brand and site
         status: done
         effort: 3
         checks:
           - {type: path, path: src/main/sessions.js}
-          - {type: path, path: src/main/useragent.js}
+          - {type: cmd, run: "npm test --silent"}
       - id: P1.3
         title: Tab manager - lazy loading, one attached page, sign-in popups, links to new tabs, load errors, crashes
         status: done
@@ -193,7 +193,7 @@ phases:
         checks:
           - {type: cmd, run: "npm test --silent"}
       - id: P2.6
-        title: End-to-end smoke test of the real app (65 checks, run by hand - it opens a window)
+        title: End-to-end smoke test of the real app (66 checks, run by hand - it opens a window)
         status: done
         effort: 3
         depends_on: [P2.3, P2.4]
@@ -314,7 +314,7 @@ phases:
         status: blocked
         effort: 2
         decision: D4
-        why: Needs the owner's accounts. Front pages of all six load; whether Google accepts a sign-in is untested.
+        why: "Needs the owner's accounts. Front pages of all six load. TikTok, Instagram and Facebook sign-in pages load; Google refused the YouTube sign-in while fanout claimed to be Chrome (2026-11-12). fanout now tells sites its own user agent; the owner's next sign-in attempt decides D4."
       - id: P5.2
         title: Drag a real video from the file panel onto a real upload page and post it
         status: pending

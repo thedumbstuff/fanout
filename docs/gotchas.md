@@ -74,10 +74,36 @@ waits and passes the output through. The exit code was 1 with every check passin
 electron-builder ("Unexpected token"). Write with `[IO.File]::WriteAllText` and
 `UTF8Encoding($false)`, or use the editor.
 
+## Google sign-in and the user agent
+
+fanout 0.2.0 as first installed told sites it was plain Chrome (it cut "fanout/0.2.0" and
+"Electron/45.3.0" out of the user agent). Google's sign-in answered "Couldn't sign you in.
+This browser or app may not be secure." Google's published rules for browsers on
+accounts.google.com (Google Developers Blog, August 2020, guidance on blocking less
+secure browsers) say a browser must identify itself clearly in its user agent, must not
+use another browser's user agent such as Chrome's, and must not rewrite HTTP headers.
+Google can also see the disguise: page JavaScript reports the brands "Chromium 156" and
+no "Google Chrome". Other Electron apps (orca, t3code-panes, neutrino) reported fixing
+the same error by dropping their disguise; none of them proved a full sign-in either.
+
+So pages now get Electron's own user agent, unchanged, everywhere: "Mozilla/5.0 (Windows
+NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) fanout/0.2.0
+Chrome/156.0.8078.96 Electron/45.3.0 Safari/537.36" for the installed app (a source run
+of a script shows no app token, since Electron then names the app "Electron"). Measured
+on a local server: the header and `navigator.userAgent` are identical. Electron 45 sends
+no `Sec-CH-UA` client hint headers at all (none reached a local server over HTTP or
+HTTPS, and none left for example.com); page JavaScript reports `Not:A-Brand 8,
+Chromium 156`. fanout changes none of it, and a unit test fails if code that rewrites
+the user agent, request headers or Chromium switches comes back.
+
+Still unproven: a real Google sign-in. Google's rules also say sign-in from embedded
+browser frameworks is not allowed, and Electron is one, so an honest user agent may
+not be enough. If Google still refuses, the next step is a decision (roadmap D4), not
+another disguise.
+
 ## Not verified yet
 
-- Signing in to Google inside fanout. Tabs present a plain Chrome user agent
-  (`useragent.js`), which is the usual fix, but only a real sign-in proves it.
+- Signing in to Google inside fanout (above).
 - A real drop onto a real upload page. The drag is started with the same native call
   Explorer uses; the drop needs a person.
 - macOS and Linux. The code avoids platform assumptions but has only run on Windows 11.

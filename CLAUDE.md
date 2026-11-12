@@ -19,6 +19,9 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 - **One runtime dependency** (`electron-updater`, owner approved 2026-11-12), no framework, no bundler. Keep pure logic free of Electron
   so `npm test` can cover it.
 - Never use Electron's quit; the only way out is `ctx.shutdown` (see gotchas).
+- **Sites see fanout as it is**: Electron's own user agent, unchanged. No disguise as
+  Chrome, no rewritten headers, no Chromium switches (Google refuses sign-in from a
+  browser that pretends; a unit test guards it). See gotchas.
 - Electron 45 is newer than most examples: check `node_modules/electron/electron.d.ts`
   before trusting a remembered API (the clipboard is async now).
 - Interface copy: plain words, sentence case, says what happens.
@@ -27,7 +30,7 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 
 ```
 npm test                       # 37 unit tests
-npm run smoke                  # 65 checks on the real app; opens a window
+npm run smoke                  # 66 checks on the real app; opens a window
 npm run measure                # memory on six real sites; takes about 2 minutes
 node tools/release.mjs build   # installer + update feed in dist/ (notes from docs/changelog.md)
 python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal)
@@ -41,8 +44,9 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
 
 ## Open
 
-- Owner must sign in to real accounts (Google sign-in inside Electron is unproven) and
-  do a real drag-and-drop upload: roadmap P5.
+- Owner must sign in to real accounts and do a real drag-and-drop upload: roadmap P5.
+  Google refused sign-in while fanout claimed to be Chrome; the honest user agent is in,
+  a real Google sign-in is still unproven (D4).
 - macOS and Linux builds need CI (repo not pushed yet). Installers are unsigned.
 - Updates (`docs/updates.md`): the app side works; nothing can be published until
   thedumbstuff-site's downloads service takes fanout and a file over 100 MB (roadmap P4.3).

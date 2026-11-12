@@ -36,7 +36,7 @@ interface redraws only the elements whose data differs (`reconcile` in `dom.js`)
 | `main/updates.js`, `notes.js` | new versions: check, download, install on restart or close ([updates](updates.md)) |
 | `main/ipc.js` | everything the interface may ask for, with checks |
 | `main/menus.js` | application menu (all shortcuts live here) and right-click menus |
-| `main/urls.js`, `useragent.js` | address bar parsing; plain Chrome user agent (pure) |
+| `main/urls.js` | address bar parsing (pure) |
 | `renderer/app.js` | rail, tab strip, toolbar, panes, status bar |
 | `renderer/files.js` | file tree, selection, drag out, posted marks |
 | `renderer/preview.js` | text preview (Markdown formatted or as written), select to copy |
@@ -48,6 +48,14 @@ interface redraws only the elements whose data differs (`reconcile` in `dom.js`)
 A brand's session is `session.fromPartition('persist:brand-<id>')`: its own cookies,
 storage and cache on disk. That is the whole isolation mechanism. Deleting a brand
 clears the session's storage and cache.
+
+Every site sees fanout as it is: Electron's own user agent ("... fanout/0.2.0
+Chrome/156... Electron/45.3.0 Safari/537.36"), unchanged, in requests and in page
+JavaScript alike. No user agent override, no rewritten request headers, no Chromium
+switches; a unit test keeps it so. Pretending to be Chrome is what made Google refuse
+sign-in (see gotchas). A site that refuses fanout with an error and no text would leave
+an empty page, so the address bar says what the site answered (`Site answered 403
+Forbidden`) whenever the page on screen got an error answer.
 
 ## Tabs, panes and the group
 
@@ -163,8 +171,9 @@ choice lasts while the app runs.
 ## Tests
 
 - `npm test`: 37 unit tests of the pure modules (the Markdown parser and the group
-  included) and file access.
-- `npm run smoke`: 65 checks of the real app (lazy loading, sleeping, unsaved-work
+  included), file access, and a guard that nothing rewrites what sites see.
+- `npm run smoke`: 66 checks of the real app (the user agent sites see, a silent
+  refusal shown, lazy loading, sleeping, unsaved-work
   refusal, file jail, preview copy, Markdown formatted and as written, links and
   pictures in Markdown, posted marks, new-tab links, load errors, split view, the group
   and solo tabs, tab names, blank tabs, saving and loading, deleting). Opens a window;

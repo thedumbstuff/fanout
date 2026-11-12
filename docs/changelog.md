@@ -22,6 +22,12 @@ puts it in the update feed, and fanout shows it after updating.
   tab of the group leaves its pane empty. fanout remembers the tab on its own too.
 - When a sleeping group comes back, the pane you clicked keeps the focus; it used to jump
   to the last pane.
+- Sites now see fanout as it is (its own name and version, and the Electron engine it is
+  built on) instead of a disguise as Chrome. Google refused to sign in with the disguise
+  ("This browser or app may not be secure"); whether it accepts fanout now is still to
+  be tried.
+- When a site answers a page with an error, the address bar says so ("Site answered 403
+  Forbidden"), so a page a site refused does not just stay empty.
 - Tab names follow the page again. Closing a tab's rename box without changing the text,
   or with Escape, no longer fixes the name; emptying the box goes back to the page title.
   A tab that was stuck on the name "New tab" shows its page title again. A new tab that
