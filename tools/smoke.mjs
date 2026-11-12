@@ -54,12 +54,19 @@ const PAGES = {
 };
 
 const requested = []; // every path the test server was asked for
+const received = new Map(); // path -> the request headers it last came with
 
 function serve() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       const { pathname } = new URL(req.url, 'http://x');
       requested.push(pathname);
+      received.set(pathname, req.headers);
+      // A site refusing a browser it does not like, the quiet way: an error and no text.
+      if (pathname === '/refuse') {
+        res.writeHead(403);
+        return res.end();
+      }
       const body = PAGES[pathname];
       res.writeHead(body ? 200 : 404, { 'content-type': 'text/html; charset=utf-8' });
       res.end(body ?? 'not found');
@@ -119,8 +126,22 @@ async function run(ctx) {
   await until(() => idle(a), 'tab A loaded');
   check('selected tab loads', live(a));
   check('other tab stays asleep until opened', !live(b));
-  const agent = await ctx.tabs.activeContents().executeJavaScript('navigator.userAgent');
-  check('pages see a plain Chrome user agent', /Chrome\//.test(agent) && !/Electron|fanout/i.test(agent), agent.slice(-40));
+  // What a site is told fanout is: Electron's own user agent, unchanged, the same in the
+  // request and in the page. Its product token is the app's name and version: "fanout/0.2.0"
+  // when installed or started with `electron .`, "Electron/45.3.0" in this source run.
+  const told = await ctx.tabs.activeContents().executeJavaScript(`({ agent: navigator.userAgent,
+    brands: (navigator.userAgentData?.brands ?? []).map((b) => b.brand + ' ' + b.version) })`);
+  const sent = received.get('/a') ?? {};
+  // Client hint headers, if Chromium sends any, must name the same brands the page reports.
+  const hinted = sent['sec-ch-ua'] ? [...sent['sec-ch-ua'].matchAll(/"([^"]+)";v="([^"]+)"/g)].map(([, b, v]) => `${b} ${v}`) : null;
+  const chromium = `Chromium ${process.versions.chrome.split('.')[0]}`;
+  check('sites see fanout as it is: its own user agent, the same in the request and the page; brands untouched',
+    sent['user-agent'] === told.agent && told.agent === app.userAgentFallback &&
+    told.agent.includes(` ${app.getName()}/${app.getVersion()} `) && told.agent.includes(` Electron/${process.versions.electron} `) &&
+    told.agent.includes(` Chrome/${process.versions.chrome} `) && told.brands.includes(chromium) &&
+    !told.brands.some((brand) => brand.startsWith('Google Chrome')) &&
+    (hinted === null || hinted.toSorted().join() === told.brands.toSorted().join()),
+    `header ${sent['user-agent']}; Sec-CH-UA ${sent['sec-ch-ua'] ?? 'not sent'}; page brands ${told.brands.join(', ')}`);
   await until(() => dom(`document.querySelectorAll('#tree .row').length >= 4`), 'file tree');
   await wait(400);
   await shot('02-brand');
@@ -284,6 +305,19 @@ async function run(ctx) {
   await bridge('navigate', b.id, `${site}/b`);
   await until(() => idle(b) && !ctx.tabs.runtime(b.id).error && b.url.endsWith('/b'), 'recovery');
   check('and recovers when a good address is opened', !ctx.tabs.runtime(b.id).error && b.title === 'Site B', b.title);
+
+  // A site that refuses fanout with an error and no text: the page stays empty, so the
+  // address bar says what the site answered.
+  await bridge('navigate', b.id, `${site}/refuse`);
+  await until(() => idle(b) && ctx.tabs.runtime(b.id).answer, 'the refusal');
+  await wait(300);
+  const refused = await dom(`(() => { const el = document.getElementById('answer'); return el.hidden ? null : el.textContent; })()`);
+  await shot('04-refused');
+  await bridge('navigate', b.id, `${site}/b`);
+  await until(() => idle(b) && !ctx.tabs.runtime(b.id).answer, 'the page again');
+  await wait(300);
+  check('a site that refuses a page without a word is not silent: the address bar says what it answered',
+    refused === 'Site answered 403 Forbidden' && await dom(`document.getElementById('answer').hidden`), String(refused));
 
   // ---- split view: pages side by side, remembered per brand
   await bridge('selectTab', a.id);
