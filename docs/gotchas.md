@@ -50,6 +50,24 @@ A page is a native layer over the window, so nothing in the interface's HTML can
 appear on top of it. Dialogs hide the pages (`layout:covered`); menus are native
 (`menus.js`); messages go in the status bar.
 
+## A page grabs the focus once when it wakes
+
+Every page fanout creates for a tab (when the tab wakes) takes the keyboard focus by
+itself once, as it gets ready, and fires `focus` (Windows 11, Electron 45). When several
+wake together (a group coming back, a brand switch) they
+grab it in turn, so the last pane ended up focused instead of the tab that was clicked.
+`tabs.js` ignores a page's first `focus` within 3 seconds of waking and gives the focus
+back to the active tab. That hand-back has to happen just after the event: a
+`contents.focus()` made inside the handler did not take.
+
+## Running Electron from PowerShell
+
+`node_modules\electron\dist\electron.exe tools/smoke.mjs` returns at once from
+PowerShell (it is a windowed program) and its output is lost; the test keeps running
+on its own. `npm run smoke`, or `node node_modules/electron/cli.js tools/smoke.mjs`,
+waits and passes the output through. The exit code was 1 with every check passing
+(most likely because the close path ends the process itself): go by the test's own tally.
+
 ## Writing files from PowerShell 5.1
 
 `Set-Content -Encoding utf8` adds a byte-order mark, which broke `package.json` for

@@ -26,8 +26,8 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 ## Working here
 
 ```
-npm test                       # 30 unit tests
-npm run smoke                  # 54 checks on the real app; opens a window
+npm test                       # 37 unit tests
+npm run smoke                  # 65 checks on the real app; opens a window
 npm run measure                # memory on six real sites; takes about 2 minutes
 node tools/release.mjs build   # installer + update feed in dist/ (notes from docs/changelog.md)
 python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal)

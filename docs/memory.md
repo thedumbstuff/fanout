@@ -30,8 +30,11 @@ How to read them:
 **Tabs**
 
 - A tab is loaded the first time it is shown. Restoring a brand with ten tabs loads
-  only the ones in its panes.
-- Only tabs in the panes on screen are attached to the window; the rest are not drawn.
+  only the ones on screen.
+- Only the tabs on screen are attached to the window; the rest are not drawn. While a
+  tab outside the group is shown on its own, the group's pages are background tabs:
+  detached, and put to sleep by the rules below. They load again when the group is
+  shown.
 - A background tab goes to sleep after 20 minutes unused (settable; 0 = never), and
   when more than 6 tabs are loaded (settable; 0 = no limit) the least recently used
   go first. Asleep means the page is destroyed and only address, title and icon are

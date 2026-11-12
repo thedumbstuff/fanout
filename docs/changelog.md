@@ -14,6 +14,14 @@ puts it in the update feed, and fanout shows it after updating.
   or one at a time as separate tabs.
 - The tabs that are on screen together are shown as one group in the tab strip, outlined
   in the brand's colour and in the order of their panes.
+- The group stays as you arranged it. A tab outside the group (clicked, a new tab, a link
+  a page opens, Ctrl+Tab) now opens on its own, filling the page area, instead of pushing
+  a page out of the group; click any tab of the group, or "Back to the group", to see it
+  again. To put a tab in the group, right-click it and choose "Put in the group" (the
+  menu says which tab it replaces); "Take out of the group" empties its pane. Closing a
+  tab of the group leaves its pane empty. fanout remembers the tab on its own too.
+- When a sleeping group comes back, the pane you clicked keeps the focus; it used to jump
+  to the last pane.
 - Tab names follow the page again. Closing a tab's rename box without changing the text,
   or with Escape, no longer fixes the name; emptying the box goes back to the page title.
   A tab that was stuck on the name "New tab" shows its page title again. A new tab that
