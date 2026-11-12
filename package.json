@@ -1,0 +1,59 @@
+{
+  "name": "fanout",
+  "productName": "fanout",
+  "version": "0.1.0",
+  "description": "One window for every brand's social accounts: isolated logins, tabs per brand, and a file panel you drag uploads from.",
+  "author": "thedumbstuff",
+  "license": "MIT",
+  "homepage": "https://thedumbstuff.page",
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "smoke": "electron tools/smoke.mjs",
+    "icon": "electron tools/make-icon.mjs",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "page.thedumbstuff.fanout",
+    "productName": "fanout",
+    "files": [
+      "src/**/*",
+      "build/drag.png",
+      "package.json",
+      "LICENSE"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "category": "Utility",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "thedumbstuff"
+    }
+  }
+}
