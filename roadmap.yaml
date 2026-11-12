@@ -338,4 +338,5 @@ features:
   - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
   - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
   - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages"}
-  - {id: F11, title: Updates itself, source: own, area: other, status: building, task: P4.3, note: "App side done and proved locally; waits for the site to host the feed"} source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}
+  - {id: F11, title: Updates itself, source: own, area: other, status: building, task: P4.3, note: "App side done and proved locally; waits for the site to host the feed"}
+  - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}
