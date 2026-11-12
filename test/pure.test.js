@@ -38,6 +38,26 @@ test('address bar: addresses, bare hosts, searches, refused schemes', () => {
   }
 });
 
+test('sites see fanout as it is: nothing in the app rewrites its user agent, request headers or switches', () => {
+  // Google's sign-in refuses a browser that claims to be another one; fanout
+  // once did (a "plain Chrome" user agent). This keeps that from coming back.
+  const rewrites = [
+    /userAgentFallback\s*=/, // the app-wide user agent
+    /\.setUserAgent\(/, // per session or per page
+    /userAgent\s*:/, // loadURL(url, { userAgent })
+    /onBeforeSendHeaders/, // rewriting request headers on the way out
+    /commandLine\.append(Switch|Argument)/, // Chromium switches, such as automation flags
+  ];
+  const files = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+    (entry.isDirectory() ? files(path.join(dir, entry.name)) : /\.(c|m)?js$/.test(entry.name) ? [path.join(dir, entry.name)] : []));
+  const src = path.join(import.meta.dirname, '..', 'src');
+  const found = files(src).flatMap((file) => rewrites
+    .filter((pattern) => pattern.test(fs.readFileSync(file, 'utf8')))
+    .map((pattern) => `${path.relative(src, file)}: ${pattern}`));
+  assert.ok(files(src).length > 10, 'the sources were found');
+  assert.deepEqual(found, []);
+});
+
 test('web urls and site names', () => {
   assert.ok(isWebUrl('http://a.b'));
   assert.ok(!isWebUrl('file:///x'));
