@@ -21,7 +21,6 @@ import { PostedStore } from '../src/main/posted.js';
 import { pickTabsToSleep, UploadActivity } from '../src/main/sleeper.js';
 import { JsonStore } from '../src/main/store.js';
 import { hostOf, isWebUrl, siteName, toUrl } from '../src/main/urls.js';
-import { cleanUserAgent } from '../src/main/useragent.js';
 
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'fanout-test-'));
 
@@ -49,14 +48,6 @@ test('web urls and site names', () => {
   assert.equal(siteName('http://localhost:8080'), 'localhost');
   assert.equal(siteName('http://10.0.0.7/'), '10.0.0.7');
   assert.equal(siteName('nonsense'), '');
-});
-
-test('user agent loses the app and Electron tokens only', () => {
-  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) fanout/0.1.0 Chrome/140.0.0.0 Electron/45.3.0 Safari/537.36';
-  assert.equal(
-    cleanUserAgent(ua, 'fanout'),
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-  );
 });
 
 // --------------------------------------------------------------- pathjail

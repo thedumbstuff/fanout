@@ -26,7 +26,6 @@ import { JsonStore } from './store.js';
 import { TabManager } from './tabs.js';
 import { Updates } from './updates.js';
 import { siteName } from './urls.js';
-import { cleanUserAgent } from './useragent.js';
 
 /**
  * @typedef {object} Context
@@ -61,7 +60,11 @@ async function boot() {
     return null;
   }
   await app.whenReady();
-  app.userAgentFallback = cleanUserAgent(app.userAgentFallback, app.getName());
+  // Pages see fanout as it is: Electron's own user agent ("... fanout/0.2.0
+  // Chrome/... Electron/... Safari/537.36"), unchanged, in every request and
+  // in the page alike. Do not dress it up as Chrome: Google's sign-in refuses
+  // browsers that claim to be another browser ("This browser or app may not
+  // be secure"), and that is what an earlier version did. See docs/gotchas.md.
 
   const dataDir = app.getPath('userData');
   const store = new JsonStore(path.join(dataDir, 'fanout.json'), { sanitize });
