@@ -135,8 +135,11 @@ function cleanBrand(raw, index) {
   let panes = (Array.isArray(raw.panes) ? raw.panes : []).slice(0, MAX_PANES).map((id) =>
     (seen.has(id) && !placed.has(id) && placed.add(id) ? id : null));
   if (!panes.length) panes = [seen.has(raw.activeTabId) ? raw.activeTabId : (tabs[0]?.id ?? null)];
-  // A blank tab in no pane was left behind by an older version (see showTab).
-  tabs = tabs.filter((tab) => !isBlank(tab) || panes.includes(tab.id));
+  // The tab shown on its own in front of the group: only with a group, and
+  // never a tab of the group. Files from before 0.2.0's group fix have none.
+  const solo = panes.length > 1 && seen.has(raw.solo) && !panes.includes(raw.solo) ? raw.solo : null;
+  // A blank tab off screen was left behind by an older version (see dropStrayBlanks).
+  tabs = tabs.filter((tab) => !isBlank(tab) || panes.includes(tab.id) || tab.id === solo);
   const focus = Number.isInteger(raw.focus) && raw.focus >= 0 && raw.focus < panes.length ? raw.focus : 0;
 
   return {
@@ -146,9 +149,10 @@ function cleanBrand(raw, index) {
     folder: typeof raw.folder === 'string' ? raw.folder : '',
     panes,
     focus,
+    solo,
     splitX: ratio(raw.splitX),
     splitY: ratio(raw.splitY),
-    activeTabId: panes[focus],
+    activeTabId: solo ?? panes[focus],
     tabs,
   };
 }
@@ -169,57 +173,193 @@ function ratio(value) {
 //                       |   | 2 |    | 2 | 3 |
 //                       +---+---+    +---+---+
 //
-// `splitX` and `splitY` are where the two dividers sit. `focus` is the pane
-// the address bar and the tab strip act on; `activeTabId` is always the tab
-// in that pane (or null) and is kept only so callers need not look it up.
+// `panes` holds one tab id (or null) per pane; a tab is in one pane at most.
+// With two or more panes, the tabs in them are the brand's GROUP: pages the
+// person arranged side by side, which other tabs never push out. Selecting a
+// tab outside the group shows that tab on its own, over the whole page area
+// (`solo`). The group waits behind it - panes, focus and dividers untouched -
+// and comes back as it was when one of its tabs is selected:
 //
-// A blank tab (isBlank) lives only in a pane: when another tab takes its pane
-// or its pane is taken away, it is removed rather than left in the tab strip
-// as a stray "New tab". It never has a page, so there is nothing to close.
+//   the group on screen       a solo tab on screen
+//   +-----+-----+             +-----------+
+//   |  A  |  B  |  select X   |           |    tab strip:
+//   +-----+-----+  -------->  |     X     |    [A B C D]  X
+//   |  C  |  D  |  <--------  |           |    (outline dashed:
+//   +-----+-----+  select C   +-----------+     the group waits)
+//
+// A tab joins the group or leaves it only when the person says so: placeTab
+// (the tab menu, or a new tab opened in an empty pane), takeOutOfGroup, the
+// layout buttons (setPaneCount). Closing a tab of the group leaves its pane
+// empty. With one pane there is no group: selecting a tab puts it in that
+// pane, as in a browser, and `solo` stays null.
+//
+// `splitX` and `splitY` are where the two dividers sit. `focus` is the pane
+// the address bar acts on while the group is on screen, and is kept while a
+// solo tab shows. `activeTabId` is the tab the address bar acts on: the solo
+// tab, else the tab in the focused pane (or null); settle() keeps it so.
+// onScreen() is what the page area shows, one entry per rectangle; the tab
+// manager goes by it, and the interface gets it in the state message.
+//
+// A blank tab (isBlank) lives only on screen or in a pane: when another tab
+// takes its place, its pane is taken away or it is taken out of the group, it
+// is removed rather than left in the tab strip as a stray "New tab". It never
+// has a page, so there is nothing to close.
 
-/** Remove the given tabs that are blank and in no pane any more. */
+/** What the page area shows, one entry per rectangle: tab ids, null for an empty pane. */
+export function onScreen(brand) {
+  return brand.solo ? [brand.solo] : [...brand.panes];
+}
+
+/** The tabs of the group in pane order (none with a single pane). */
+export function groupOf(brand) {
+  return brand.panes.length > 1 ? brand.panes.filter(Boolean) : [];
+}
+
+/** Every tab id in the order of the tab strip: the group first, then the rest in tab order. */
+export function stripOrder(brand) {
+  const group = groupOf(brand);
+  return [...group, ...brand.tabs.map((tab) => tab.id).filter((id) => !group.includes(id))];
+}
+
+/** The tab Ctrl+Tab (1) or Ctrl+Shift+Tab (-1) goes to, round the tab strip; null if none. */
+export function stepTab(brand, direction) {
+  const order = stripOrder(brand);
+  if (!order.length) return null;
+  let at = order.indexOf(brand.activeTabId);
+  if (at === -1) {
+    // The focused pane is empty: count from where that pane sits in the group.
+    const before = brand.panes.slice(0, brand.focus).filter(Boolean).length;
+    at = direction > 0 ? before - 1 : before;
+  }
+  const next = order[(((at + direction) % order.length) + order.length) % order.length];
+  return next === brand.activeTabId ? null : next;
+}
+
+/** Point activeTabId at the tab the address bar acts on. */
+function settle(brand) {
+  brand.activeTabId = brand.solo ?? brand.panes[brand.focus] ?? null;
+}
+
+/** Remove the given tabs that are blank and neither in a pane nor shown on their own. */
 function dropStrayBlanks(brand, tabIds) {
   for (const id of tabIds) {
+    if (!id || brand.panes.includes(id) || brand.solo === id) continue;
     const index = brand.tabs.findIndex((tab) => tab.id === id);
-    if (index !== -1 && isBlank(brand.tabs[index]) && !brand.panes.includes(id)) brand.tabs.splice(index, 1);
+    if (index !== -1 && isBlank(brand.tabs[index])) brand.tabs.splice(index, 1);
   }
 }
 
-/** Show a tab: if a pane already has it, focus that pane; else put it in the focused one. */
+/** Stop showing a solo tab, so the group is on screen again. */
+function endSolo(brand) {
+  const solo = brand.solo;
+  brand.solo = null;
+  dropStrayBlanks(brand, [solo]);
+}
+
+const hasTab = (brand, tabId) => brand.tabs.some((tab) => tab.id === tabId);
+const isPane = (brand, index) => Number.isInteger(index) && index >= 0 && index < brand.panes.length;
+
+/**
+ * Show a tab. A tab of the group brings the group back with its pane focused.
+ * Any other tab is shown on its own in front of the group, which stays as it
+ * is; with a single pane it simply takes that pane.
+ */
 export function showTab(brand, tabId) {
+  if (!hasTab(brand, tabId)) return;
   const at = brand.panes.indexOf(tabId);
   if (at !== -1) {
     brand.focus = at;
+    endSolo(brand);
+  } else if (brand.panes.length > 1) {
+    const before = brand.solo;
+    brand.solo = tabId;
+    dropStrayBlanks(brand, [before]);
   } else {
-    const displaced = brand.panes[brand.focus];
-    brand.panes[brand.focus] = tabId;
+    const displaced = brand.panes[0];
+    brand.panes[0] = tabId;
+    brand.focus = 0;
     dropStrayBlanks(brand, [displaced]);
   }
-  brand.activeTabId = tabId;
+  settle(brand);
 }
 
+/** Focus a pane of the group; the group comes back if a solo tab was in front of it. */
 export function focusPane(brand, index) {
-  if (!Number.isInteger(index) || index < 0 || index >= brand.panes.length) return;
+  if (!isPane(brand, index)) return;
   brand.focus = index;
-  brand.activeTabId = brand.panes[index];
+  endSolo(brand);
+  settle(brand);
 }
 
 /**
- * Change how many panes a brand shows. New panes take the tabs that are not
- * on screen yet, in tab order. When panes are removed the focused tab stays.
+ * Change how many panes a brand shows. The panes that stay keep their tabs;
+ * when panes are removed the focused tab stays. New panes take the solo tab
+ * first (it is what the person is looking at, and it gets the focus), then
+ * the tabs that are not on screen, in tab order.
+ *
+ * The layout buttons light the number of pages on screen, so while a solo tab
+ * shows, "one page" is lit and choosing it changes nothing: the group behind
+ * is kept (a stray click must not undo an arrangement). Choosing two to four
+ * brings the group back at that size.
  */
 export function setPaneCount(brand, count) {
   const wanted = Math.min(MAX_PANES, Math.max(1, Math.round(Number(count)) || 1));
+  const { solo } = brand;
+  if (solo && wanted === 1) return;
   const focused = brand.panes[brand.focus];
-  const before = brand.panes;
+  const before = [...brand.panes, solo];
   const panes = brand.panes.slice(0, wanted);
   if (focused && !panes.includes(focused)) panes[wanted - 1] = focused;
+  let focus = focused ? panes.indexOf(focused) : Math.min(brand.focus, wanted - 1);
+  if (solo && panes.length < wanted) {
+    focus = panes.length;
+    panes.push(solo);
+  }
   const spare = brand.tabs.map((tab) => tab.id).filter((id) => !panes.includes(id));
   while (panes.length < wanted) panes.push(spare.shift() ?? null);
   brand.panes = panes;
-  brand.focus = focused ? panes.indexOf(focused) : Math.min(brand.focus, wanted - 1);
-  brand.activeTabId = panes[brand.focus];
+  brand.focus = focus;
+  brand.solo = null;
   dropStrayBlanks(brand, before);
+  settle(brand);
+}
+
+/** The pane "Put in the group" uses: an empty one (the focused pane first), else the focused one. */
+export function groupSlot(brand) {
+  if (!brand.panes[brand.focus]) return brand.focus;
+  const empty = brand.panes.indexOf(null);
+  return empty === -1 ? brand.focus : empty;
+}
+
+/**
+ * Put a tab in a pane: the tab menu's "Put in the group", and a new tab opened
+ * in an empty pane. What was in that pane becomes a tab outside the group (a
+ * tab already in the group swaps places with it instead). The group is shown,
+ * with that pane focused, so the person sees where the tab went. False if
+ * there is no such tab or pane.
+ */
+export function placeTab(brand, tabId, index = groupSlot(brand)) {
+  if (!hasTab(brand, tabId) || !isPane(brand, index)) return false;
+  const displaced = brand.panes[index];
+  const from = brand.panes.indexOf(tabId);
+  if (from !== -1) brand.panes[from] = displaced;
+  brand.panes[index] = tabId;
+  brand.focus = index;
+  const { solo } = brand;
+  brand.solo = null;
+  dropStrayBlanks(brand, [displaced, solo]);
+  settle(brand);
+  return true;
+}
+
+/** Take a tab out of the group: its pane is left empty and it stays a tab. False if it is not in the group. */
+export function takeOutOfGroup(brand, tabId) {
+  const at = brand.panes.indexOf(tabId);
+  if (at === -1 || brand.panes.length < 2) return false;
+  brand.panes[at] = null;
+  dropStrayBlanks(brand, [tabId]);
+  settle(brand);
+  return true;
 }
 
 export function setSplit(brand, { x, y } = {}) {
@@ -332,19 +472,21 @@ export function addTab(brand, { url = '', temp = false, afterId = null } = {}) {
 }
 
 /**
- * Remove a tab. If it was on screen, its pane takes the nearest tab that is
- * not on screen already (right-hand neighbour first), or stays empty.
+ * Remove a tab. A solo tab that goes takes nothing with it: the group comes
+ * back. A tab of the group leaves its pane empty, because no tab joins the
+ * group by itself. The one pane of a brand without a group takes the nearest
+ * tab instead (right-hand neighbour first), as a browser does.
  */
 export function removeTab(brand, tabId) {
   const index = brand.tabs.findIndex((tab) => tab.id === tabId);
   if (index === -1) return null;
   const [tab] = brand.tabs.splice(index, 1);
+  if (brand.solo === tabId) brand.solo = null;
   const pane = brand.panes.indexOf(tabId);
   if (pane !== -1) {
-    const candidates = [brand.tabs[index], brand.tabs[index - 1], ...brand.tabs];
-    brand.panes[pane] = candidates.find((t) => t && !brand.panes.includes(t.id))?.id ?? null;
+    brand.panes[pane] = brand.panes.length > 1 ? null : ((brand.tabs[index] ?? brand.tabs[index - 1])?.id ?? null);
   }
-  brand.activeTabId = brand.panes[brand.focus];
+  settle(brand);
   return tab;
 }
 
