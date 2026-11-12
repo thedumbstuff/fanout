@@ -419,3 +419,11 @@ button.primary:hover { background: #2a2620; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .dialog .chip { height: 28px; padding: 0 11px; border-radius: 14px; font-weight: 500; }
 .dialog .chip.is-on { border-color: var(--ink); background: var(--yellow); color: var(--ink); }
+
+/* --------------------------------------------------------------- updates */
+
+#update { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.dialog h2.second { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.field.check { display: flex; align-items: center; gap: 8px; }
+.update-result { min-height: 1.5em; }
+.notes { max-height: 50vh; margin: 0 0 4px; overflow: auto; font: inherit; line-height: 1.5; white-space: pre-wrap; user-select: text; cursor: text; }

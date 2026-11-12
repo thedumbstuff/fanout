@@ -11,6 +11,8 @@ import {
   addTab, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, focusPane, removeTab, sanitize,
   setPaneCount, setSplit, showTab,
 } from '../src/main/model.js';
+import { notesText, whatsNew } from '../src/main/notes.js';
+import { notesFor } from '../tools/release.mjs';
 import { isInside, OutsideFolderError, resolveInside, toRel } from '../src/main/pathjail.js';
 import { PostedStore } from '../src/main/posted.js';
 import { pickTabsToSleep, UploadActivity } from '../src/main/sleeper.js';
@@ -251,6 +253,44 @@ test('data from disk is repaired, not trusted', () => {
   assert.deepEqual(data.window, { width: 900, height: 700, x: undefined, y: undefined, maximized: false });
   assert.deepEqual(sanitize(null), defaults());
   assert.deepEqual(sanitize('garbage'), defaults());
+});
+
+// ---------------------------------------------------------------- updates
+
+test('release notes: plain text from whatever the feed carries', () => {
+  assert.equal(notesText('- one\n- two'), '- one\n- two');
+  assert.equal(notesText('<ul><li>Faster &amp; smaller</li><li>Fixes</li></ul>'), '- Faster & smaller\n- Fixes');
+  assert.equal(notesText([{ version: '0.2.1', note: 'b' }, { version: '0.2.0', note: 'a' }]), 'b\n\na');
+  assert.equal(notesText(null), '');
+  assert.equal(notesText('x'.repeat(30_000)).length, 20_000);
+});
+
+test('what is new is offered once, on the first start after an update', () => {
+  const notes = { version: '0.2.1', text: 'better' };
+  assert.equal(whatsNew('', '0.2.1', notes), null, 'a fresh install has nothing to announce');
+  assert.equal(whatsNew('0.2.1', '0.2.1', notes), null, 'same version as last time');
+  assert.deepEqual(whatsNew('0.2.0', '0.2.1', notes), { version: '0.2.1', text: 'better' });
+  assert.deepEqual(whatsNew('0.2.0', '0.2.1', { version: '0.1.9', text: 'old' }), { version: '0.2.1', text: '' },
+    'notes of another version are not shown');
+  assert.deepEqual(whatsNew('0.2.0', '0.2.1', null), { version: '0.2.1', text: '' });
+});
+
+test('changelog sections become release notes', () => {
+  const log = '# Changelog\n\nintro\n\n## 0.2.0 - 2026-11-12\n\n- updates\n- smaller\n\n## 0.1.0 - 2026-11-12\n\nFirst.\n';
+  assert.equal(notesFor(log, '0.2.0'), '- updates\n- smaller');
+  assert.equal(notesFor(log, '0.1.0'), 'First.');
+  assert.equal(notesFor(log, '0.2'), '', 'a prefix of a version is not that version');
+  assert.equal(notesFor(log, '9.9.9'), '');
+  assert.equal(notesFor('## 1.0.0\n- a long\n  wrapped item\n- next', '1.0.0'), '- a long wrapped item\n- next');
+});
+
+test('update settings survive a save and a damaged file', () => {
+  assert.equal(defaults().settings.autoUpdate, true);
+  const data = sanitize({ settings: { autoUpdate: false }, lastVersion: '0.2.0', releaseNotes: { version: '0.2.1', text: 'n' } });
+  assert.equal(data.settings.autoUpdate, false);
+  assert.equal(data.lastVersion, '0.2.0');
+  assert.deepEqual(data.releaseNotes, { version: '0.2.1', text: 'n' });
+  assert.equal(sanitize({ lastVersion: 7, releaseNotes: { version: 1 } }).releaseNotes, null);
 });
 
 // ------------------------------------------------------------------ store

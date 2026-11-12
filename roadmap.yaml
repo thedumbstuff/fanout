@@ -242,7 +242,7 @@ phases:
         effort: 2
         checks:
           - {type: path, path: build/icon.png}
-          - {type: path, path: "dist/fanout Setup 0.1.0.exe"}
+          - {type: path, path: dist/latest.yml}
       - id: P4.2
         title: macOS (.dmg) and Linux (AppImage, .deb) builds
         status: pending
@@ -255,7 +255,7 @@ phases:
         status: pending
         effort: 3
         depends_on: [P4.1]
-        why: Outward-facing; owner deploys the site. Reuse the downloads service ContextWire's installer uses (thedumbstuff-site docs/installer.md).
+        why: "Outward-facing; owner deploys the site. Two changes needed in thedumbstuff-site api/downloads.py: accept the product fanout with electron-updater's latest*.yml feed (today it knows ContextWire only), and take a 107.6 MB installer (Cloudflare refuses requests over 100 MB, so uploads in parts). Until then no update can reach anyone. See docs/updates.md."
       - id: P4.4
         title: Signed installers
         status: blocked
@@ -263,11 +263,21 @@ phases:
         decision: D5
         why: Needs paid certificates; shipping unsigned first.
       - id: P4.5
-        title: Automatic updates
-        status: pending
-        effort: 3
-        depends_on: [P4.3]
-        why: Needs a published download location first.
+        title: Automatic updates in the app (electron-updater) - download in the background, install on restart or on close, what is new
+        status: done
+        effort: 4
+        why: "Proved on this PC 2026-11-12 with a local feed: an installed 0.2.0 became 0.2.1 both by closing the window and by Restart to update (docs/updates.md)."
+        checks:
+          - {type: path, path: src/main/updates.js}
+          - {type: path, path: docs/updates.md}
+          - {type: cmd, run: "npm test --silent"}
+      - id: P4.6
+        title: Release tool - build with notes from the changelog, local test feed, publish
+        status: done
+        effort: 2
+        why: publish speaks the site's protocol but the site does not take fanout yet (P4.3).
+        checks:
+          - {type: path, path: tools/release.mjs}
 
   - id: P5
     name: Proof with real accounts
@@ -328,4 +338,4 @@ features:
   - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
   - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
   - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages"}
-  - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}
+  - {id: F11, title: Updates itself, source: own, area: other, status: building, task: P4.3, note: "App side done and proved locally; waits for the site to host the feed"} source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}

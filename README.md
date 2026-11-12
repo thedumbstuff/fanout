@@ -17,6 +17,7 @@ fanout keeps each brand in its own compartment:
 - **Caption files open in place.** Click a `.txt` or `.md` file to read it; select any
   part of the text and it is copied.
 - **A posted tracker.** Tick which file has gone where; hide what is posted everywhere.
+- **It updates itself**: new versions download in the background and install on restart.
 - **Tabs you are not using go to sleep** and give their memory back. A tab that is
   uploading, playing sound or holding something you typed is left alone.
 
@@ -38,7 +39,7 @@ npm start
 ## Build an installer
 
 ```
-npx electron-builder          # for the system you are on
+node tools/release.mjs build  # for the system you are on
 ```
 
 The result is in `dist/`. The workflow in `.github/workflows/build.yml` builds
@@ -56,7 +57,7 @@ python watchtower/server.py    # build dashboard on http://127.0.0.1:8768
 
 Start with `src/main/main.js`; it lists what every file is for. More in `docs/`:
 [architecture](docs/architecture.md), [memory](docs/memory.md),
-[gotchas](docs/gotchas.md), [changelog](docs/changelog.md).
+[gotchas](docs/gotchas.md), [updates](docs/updates.md), [changelog](docs/changelog.md).
 
 ## Where your data is
 

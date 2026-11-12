@@ -1,7 +1,7 @@
 # Architecture
 
-Electron 45, plain JavaScript (ES modules), no framework, no bundler, no runtime
-dependencies. Two dev dependencies: `electron` and `electron-builder`.
+Electron 45, plain JavaScript (ES modules), no framework, no bundler. One runtime
+dependency, `electron-updater`; two dev dependencies, `electron` and `electron-builder`.
 
 ## Processes
 
@@ -33,6 +33,7 @@ interface redraws only the elements whose data differs (`reconcile` in `dom.js`)
 | `main/files.js` | brand folder: list one directory, read start of a text file, watch |
 | `main/pathjail.js` | no path can leave a brand's folder (pure) |
 | `main/posted.js` | posted marks |
+| `main/updates.js`, `notes.js` | new versions: check, download, install on restart or close ([updates](updates.md)) |
 | `main/ipc.js` | everything the interface may ask for, with checks |
 | `main/menus.js` | application menu (all shortcuts live here) and right-click menus |
 | `main/urls.js`, `useragent.js` | address bar parsing; plain Chrome user agent (pure) |
@@ -90,7 +91,7 @@ it is dropped is between the person and the page.
 
 ## Tests
 
-- `npm test`: 16 unit tests of the pure modules and file access.
+- `npm test`: 20 unit tests of the pure modules and file access.
 - `npm run smoke`: 37 checks of the real app (lazy loading, sleeping, unsaved-work
   refusal, file jail, preview copy, posted marks, new-tab links, load errors, split
   view, saving, deleting). Opens a window; screenshots in `.smoke/shots`.

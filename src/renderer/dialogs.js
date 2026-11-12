@@ -126,8 +126,42 @@ function select(options, current, onchange) {
     all.map(([value, label]) => h('option', { value: String(value), selected: value === current }, label)));
 }
 
-/** Memory settings. Changes apply as they are made. */
+/** One sentence for where an update stands (`view` is Updates.view() from the main process). */
+export function updateMessage(view) {
+  switch (view.status) {
+    case 'current': return 'You have the newest version.';
+    case 'downloading': return `Version ${view.version} is downloading.`;
+    case 'ready': return `Version ${view.version} is ready. It installs when you restart or close fanout.`;
+    case 'available': return `Version ${view.version} is out.`;
+    case 'off': return 'Updates work in the installed app, not when fanout is run from its source.';
+    case 'error': return `Could not check for updates. ${view.problem}`;
+    default: return 'Checking…';
+  }
+}
+
+/** What changed in the version that was just installed. */
+export function openNotesDialog({ api, version, text }) {
+  return modal(api, (finish) => h('form', { method: 'dialog', onsubmit: (e) => { e.preventDefault(); finish(); } },
+    h('h2', {}, `New in fanout ${version}`),
+    text ? h('pre', { class: 'notes' }, text) : h('p', {}, 'This version came without notes.'),
+    h('div', { class: 'dialog-actions' },
+      h('span', { class: 'grow' }),
+      h('button', { type: 'submit', class: 'primary' }, 'Done'))));
+}
+
+/** Memory and update settings. Changes apply as they are made. */
 export function openSettingsDialog({ api, settings, version }) {
+  const result = h('p', { class: 'quiet update-result', role: 'status' });
+  const check = h('button', {
+    type: 'button',
+    onclick: async () => {
+      check.disabled = true;
+      result.textContent = 'Checking…';
+      result.textContent = updateMessage(await api.checkForUpdates());
+      check.disabled = false;
+    },
+  }, 'Check for updates');
+
   return modal(api, (finish) => h('form', { method: 'dialog', onsubmit: (e) => { e.preventDefault(); finish(); } },
     h('h2', {}, 'Memory'),
     h('p', {}, 'Every loaded tab is a full web page and uses memory even when you are not looking at it. ' +
@@ -140,8 +174,18 @@ export function openSettingsDialog({ api, settings, version }) {
       select(MAX_LIVE, settings.maxLiveTabs, (value) => api.updateSettings({ maxLiveTabs: value }))),
     h('p', { class: 'quiet' }, 'A tab is never put to sleep while it is uploading, playing sound, or holding ' +
       'something you typed and have not sent. Right-click a tab to keep it awake always.'),
+    h('h2', { class: 'second' }, 'Updates'),
+    h('label', { class: 'field check' },
+      h('input', {
+        type: 'checkbox',
+        checked: settings.autoUpdate,
+        onchange: (e) => api.updateSettings({ autoUpdate: e.target.checked }),
+      }),
+      h('span', {}, 'Download new versions when they come out')),
+    result,
     h('div', { class: 'dialog-actions' },
       h('span', { class: 'quiet' }, `fanout ${version}`),
+      check,
       h('span', { class: 'grow' }),
       h('button', { type: 'submit', class: 'primary' }, 'Done'))));
 }

@@ -64,6 +64,11 @@ export function registerIpc(ctx) {
   on('layout:covered', (covered) => tabs.setCovered(covered === true));
   handle('clipboard:write', (text) => clipboard.writeText(String(text ?? '').slice(0, MAX_COPY)));
 
+  // ---------------------------------------------------------------- updates
+  handle('update:check', () => ctx.updates.check());
+  handle('update:install', () => ctx.updates.install());
+  handle('update:dismiss-news', () => ctx.updates.dismissNews());
+
   // ----------------------------------------------------------------- brands
   handle('brand:create', (input = {}) => {
     const urls = (Array.isArray(input.urls) ? input.urls : []).slice(0, 12).map(toUrl).filter(Boolean);

@@ -24,6 +24,7 @@ import { BrandSessions } from './sessions.js';
 import { UploadActivity } from './sleeper.js';
 import { JsonStore } from './store.js';
 import { TabManager } from './tabs.js';
+import { Updates } from './updates.js';
 import { siteName } from './urls.js';
 import { cleanUserAgent } from './useragent.js';
 
@@ -40,6 +41,8 @@ import { cleanUserAgent } from './useragent.js';
  * @property {() => void} changed                     send that state soon
  * @property {(channel: string, ...args: any[]) => void} send
  * @property {(brandId: string, options?: {ask?: boolean}) => Promise<boolean>} deleteBrand
+ * @property {Updates} updates
+ * @property {() => Promise<void>} save               write data, cookies and site storage to disk now
  * @property {() => Promise<void>} shutdown           save everything and end the process
  */
 
@@ -101,6 +104,12 @@ async function boot() {
     uploads,
     changed: ctx.changed,
   });
+  ctx.save = async () => {
+    store.flush();
+    posted.flush();
+    await ctx.sessions.flushAll();
+  };
+  ctx.updates = new Updates({ store, changed: ctx.changed, save: ctx.save });
   ctx.watcher = new FolderWatcher((brandId, rel) => ctx.send('files:changed', brandId, rel));
 
   ctx.snapshot = () => ({
@@ -109,6 +118,7 @@ async function boot() {
     colors: BRAND_COLORS,
     settings: store.data.settings,
     activeBrandId: store.data.activeBrandId,
+    update: ctx.updates.view(),
     brands: store.data.brands.map((brand) => ({
       id: brand.id,
       name: brand.name,
@@ -169,9 +179,9 @@ async function boot() {
   ctx.shutdown = async () => {
     ctx.tabs.dispose();
     ctx.watcher.closeAll();
-    store.flush();
-    posted.flush();
-    await ctx.sessions.flushAll();
+    await ctx.save();
+    // An update that is waiting is installed now, so the next start is the new version.
+    if (ctx.updates.installOnExit()) await new Promise((resolve) => setTimeout(resolve, 800));
     process.kill(process.pid, 'SIGKILL');
   };
   ctx.window.on('closed', ctx.shutdown);
@@ -183,6 +193,7 @@ async function boot() {
   app.on('window-all-closed', () => {}); // shutdown is already on its way
 
   await ctx.window.loadFile(path.join(ROOT, 'src', 'renderer', 'index.html'));
+  ctx.updates.start();
   return ctx;
 }
 

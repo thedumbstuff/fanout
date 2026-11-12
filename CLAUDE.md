@@ -16,7 +16,7 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 - **Memory matters to the owner.** Anything that loads pages, files or lists needs a
   bound. Re-run `npm run measure` after touching `tabs.js` or `sleeper.js` and update
   `docs/memory.md`.
-- **No runtime dependencies**, no framework, no bundler. Keep pure logic free of Electron
+- **One runtime dependency** (`electron-updater`, owner approved 2026-11-12), no framework, no bundler. Keep pure logic free of Electron
   so `npm test` can cover it.
 - Never use Electron's quit; the only way out is `ctx.shutdown` (see gotchas).
 - Electron 45 is newer than most examples: check `node_modules/electron/electron.d.ts`
@@ -26,10 +26,10 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 ## Working here
 
 ```
-npm test                       # 16 unit tests
+npm test                       # 20 unit tests
 npm run smoke                  # 37 checks on the real app; opens a window
 npm run measure                # memory on six real sites; takes about 2 minutes
-npx electron-builder --win     # installer in dist/
+node tools/release.mjs build   # installer + update feed in dist/ (notes from docs/changelog.md)
 python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal)
 ```
 
@@ -43,6 +43,8 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
 
 - Owner must sign in to real accounts (Google sign-in inside Electron is unproven) and
   do a real drag-and-drop upload: roadmap P5.
-- macOS and Linux builds need CI (repo not pushed yet). Publishing downloads on
-  thedumbstuff.page is the owner's step. Installers are unsigned.
+- macOS and Linux builds need CI (repo not pushed yet). Installers are unsigned.
+- Updates (`docs/updates.md`): the app side works; nothing can be published until
+  thedumbstuff-site's downloads service takes fanout and a file over 100 MB (roadmap P4.3).
+- fanout 0.2.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-12).
 - Later: caption clipboard (P6.1), thumbnails, tab reordering.

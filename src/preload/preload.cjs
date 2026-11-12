@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('fanout', {
   setCovered: tell('layout:covered'),
   copy: call('clipboard:write'),
 
+  checkForUpdates: call('update:check'),
+  installUpdate: call('update:install'),
+  dismissNews: call('update:dismiss-news'),
+
   createBrand: call('brand:create'),
   updateBrand: call('brand:update'),
   deleteBrand: call('brand:delete'),

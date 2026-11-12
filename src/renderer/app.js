@@ -2,7 +2,7 @@
 // and the status bar. The main process owns all state and sends a fresh copy
 // whenever it changes; this file only draws it and passes on what is clicked.
 
-import { openBrandDialog, openSettingsDialog } from './dialogs.js';
+import { openBrandDialog, openNotesDialog, openSettingsDialog, updateMessage } from './dialogs.js';
 import { h, icon, initials, inkOn, reconcile, tabLabel } from './dom.js';
 import { FilePanel } from './files.js';
 
@@ -60,6 +60,35 @@ function renderStatus() {
   const loaded = tabs.filter((tab) => tab.live).length;
   $('tab-count').textContent = tabs.length ? `${loaded} of ${tabs.length} tabs loaded` : '';
   $('memory').textContent = metrics.totalMB ? `${metrics.totalMB.toLocaleString()} MB` : '';
+}
+
+let updateSignature = '';
+let newsOffered = false;
+
+/** The update corner of the status bar: progress, then one button. */
+function renderUpdate() {
+  const { status, version, percent, news } = state.update;
+  const signature = [status, version, percent].join('|');
+  if (signature !== updateSignature) {
+    updateSignature = signature;
+    const el = $('update');
+    const action = (label) => h('button', { class: 'note-action', onclick: () => api.installUpdate() }, label);
+    const parts = {
+      downloading: [`Downloading fanout ${version}, ${percent}%`],
+      ready: [`fanout ${version} is ready`, action('Restart to update')],
+      available: [`fanout ${version} is out`, action('Get it')],
+    }[status];
+    el.hidden = !parts;
+    el.replaceChildren(...(parts ?? []));
+  }
+  if (news && !newsOffered) {
+    newsOffered = true;
+    note(`fanout was updated to ${news.version}.`, {
+      label: 'See what is new',
+      action: () => openNotesDialog({ api, ...news }),
+    });
+    api.dismissNews(); // offered once; not again on the next start
+  }
 }
 
 // -------------------------------------------------------------------- rail
@@ -478,6 +507,7 @@ function render() {
   renderLayouts();
   renderPanes();
   renderStatus();
+  renderUpdate();
   panel.update(state);
 }
 
@@ -489,6 +519,7 @@ const COMMANDS = {
   'toggle-panel': togglePanel,
   'rename-tab': renameTab,
   'edit-brand': editBrand,
+  'update-result': (view) => note(updateMessage(view)),
 };
 
 api.on('state', (next) => {

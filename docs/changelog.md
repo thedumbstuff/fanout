@@ -1,5 +1,17 @@
 # Changelog
 
+Each `## <version>` section is also that version's release notes: `tools/release.mjs build`
+puts it in the update feed, and fanout shows it after updating.
+
+## 0.2.0 - 2026-11-12
+
+- fanout updates itself. It looks for a new version shortly after starting and every
+  six hours, downloads it in the background, and says so in the status bar. The new
+  version is installed when you press "Restart to update" or the next time you close
+  fanout. Settings has a switch for it and a "Check for updates" button.
+- After an update, the status bar offers what is new.
+- Smaller installer.
+
 ## 0.1.0 - 2026-11-12
 
 First version.

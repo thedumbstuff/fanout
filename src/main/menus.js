@@ -40,6 +40,7 @@ export function buildAppMenu(ctx) {
         { label: 'Close tab', accelerator: 'CmdOrCtrl+W', click: onTab((id) => tabs.close(id)) },
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: command('settings') },
+        { label: 'Check for updates', click: async () => ctx.send('command', 'update-result', await ctx.updates.check()) },
         ...(mac ? [] : [{ type: 'separator' }, { role: 'quit' }]),
       ],
     },

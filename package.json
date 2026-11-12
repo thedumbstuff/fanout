@@ -1,7 +1,7 @@
 {
   "name": "fanout",
   "productName": "fanout",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One window for every brand's social accounts: isolated logins, tabs per brand, and a file panel you drag uploads from.",
   "author": "thedumbstuff",
   "license": "MIT",
@@ -28,6 +28,7 @@
     "files": [
       "src/**/*",
       "build/drag.png",
+      "build/icon.png",
       "package.json",
       "LICENSE"
     ],
@@ -41,13 +42,15 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "fanout-setup-${version}.${ext}"
     },
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
         "dmg"
-      ]
+      ],
+      "artifactName": "fanout-${version}-${arch}.${ext}"
     },
     "linux": {
       "category": "Utility",
@@ -55,7 +58,21 @@
         "AppImage",
         "deb"
       ],
-      "maintainer": "thedumbstuff"
-    }
+      "maintainer": "thedumbstuff",
+      "artifactName": "fanout-${version}-${arch}.${ext}"
+    },
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US"
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://thedumbstuff.page/downloads/fanout/current/"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

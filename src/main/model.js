@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   panelWidth: 340,
   previewHeight: 240,
   hidePosted: false,
+  autoUpdate: true, // look for new versions and download them
 });
 
 const LIMITS = {
@@ -45,6 +46,8 @@ export function defaults() {
     activeBrandId: null,
     brands: [],
     permissions: {},
+    lastVersion: '', // the version that ran last, to notice an update
+    releaseNotes: null, // { version, text } of the update downloaded last
   };
 }
 
@@ -58,7 +61,7 @@ export function cleanSettings(input, base = DEFAULT_SETTINGS) {
       out[key] = Math.min(max, Math.max(min, Math.round(value)));
     }
   }
-  for (const key of ['panelOpen', 'hidePosted']) {
+  for (const key of ['panelOpen', 'hidePosted', 'autoUpdate']) {
     if (typeof input[key] === 'boolean') out[key] = input[key];
   }
   return out;
@@ -190,6 +193,10 @@ export function sanitize(raw) {
     : (data.brands[0]?.id ?? null);
   data.settings = cleanSettings(raw.settings);
   data.window = cleanWindow(raw.window);
+  if (typeof raw.lastVersion === 'string') data.lastVersion = raw.lastVersion.slice(0, 40);
+  if (typeof raw.releaseNotes?.version === 'string' && typeof raw.releaseNotes.text === 'string') {
+    data.releaseNotes = { version: raw.releaseNotes.version.slice(0, 40), text: raw.releaseNotes.text.slice(0, 20000) };
+  }
   if (raw.permissions && typeof raw.permissions === 'object') {
     for (const [key, value] of Object.entries(raw.permissions)) {
       if (typeof value === 'boolean') data.permissions[key] = value;
