@@ -5,11 +5,13 @@
 // Simulated typing and scripted page calls appear only here, on the test's
 // own local pages. The app itself never does either.
 
-import { app, clipboard } from 'electron';
+import { app, clipboard, Menu } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { UNNAMED_TAB } from '../src/main/model.js';
+import { tabMenuTemplate } from '../src/main/menus.js';
+import { sanitize, tabLabel, UNNAMED_TAB } from '../src/main/model.js';
+import { JsonStore } from '../src/main/store.js';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const WORK = path.join(ROOT, '.smoke');
@@ -100,6 +102,8 @@ async function run(ctx) {
   const brand = () => ctx.store.data.brands[0];
   const live = (tab) => ctx.tabs.runtime(tab.id).live;
   const idle = (tab) => live(tab) && !ctx.tabs.runtime(tab.id).loading;
+  /** The pages attached to the window right now, with where they sit. */
+  const attached = () => ctx.window.contentView.children.filter((view) => view.webContents && view.webContents !== ui);
 
   ctx.window.show();
   await wait(600);
@@ -338,6 +342,150 @@ async function run(ctx) {
   const tabWidth = await dom(`Math.round(document.querySelector('#tab-group .tab').getBoundingClientRect().width)`);
   check('grouped tabs keep their full width when there is room', tabWidth >= 140, `${tabWidth}px`);
   await shot('07-added-side-by-side');
+
+  // ---- the group stays as arranged: a tab outside it is shown on its own, in front of it
+  const layoutOf = (b) => JSON.stringify([b.panes, b.splitX, b.splitY]);
+  const arranged = layoutOf(together);
+  const groupIds = [...together.panes];
+  /** What the interface shows: boxes in the page area, the group in the strip, the lit layout button. */
+  const screen = () => dom(`({
+    boxes: [...document.querySelectorAll('#page .pane')].map((el) => el.dataset.tab),
+    grouped: document.querySelectorAll('#tab-group .tab').length,
+    waiting: document.getElementById('tab-group').classList.contains('is-waiting'),
+    active: [...document.querySelectorAll('#tabs .tab.is-active')].map((el) => el.dataset.id).join(),
+    groupLit: document.querySelectorAll('#tab-group .tab:is(.is-active, .is-shown)').length,
+    focused: document.querySelector('#page .pane.is-focused')?.dataset.tab ?? null,
+    head: document.querySelector('#page .pane-title')?.textContent ?? null,
+    back: Boolean(document.querySelector('#page .pane-back')),
+    starter: document.querySelector('#page h1')?.textContent ?? null,
+    lit: [...document.querySelectorAll('#layouts .is-on')].map((el) => el.dataset.count).join(),
+    marked: [...document.querySelectorAll('#layouts .is-waiting')].map((el) => el.dataset.count).join(),
+    address: document.getElementById('address').value,
+  })`);
+  const fifth = together.tabs[4].id; // the starter tab that did not fit in the group
+  check('the group starts as four live pages on the window', attached().length === 4);
+
+  const plus = await bridge('createTab', together.id);
+  await wait(500);
+  const alone = await screen();
+  check('+ in split view leaves the four panes untouched and shows the new tab alone',
+    layoutOf(together) === arranged && together.solo === plus && together.activeTabId === plus &&
+    alone.boxes.join() === plus && alone.grouped === 4 && alone.waiting && alone.active === plus && alone.groupLit === 0 &&
+    alone.starter === 'Where does Together post?' && alone.back && alone.lit === '1' && alone.marked === '4' &&
+    attached().length === 0, JSON.stringify(alone));
+  await shot('09-solo-new-tab');
+
+  await bridge('navigate', plus, `${site}/b`);
+  await until(() => idle({ id: plus }), 'the new tab loads on its own');
+  await wait(500);
+  const zoom = ui.getZoomFactor();
+  const body = await dom(`(() => { const r = document.querySelector('#page .pane-body').getBoundingClientRect();
+    return { width: r.width, height: r.height, page: document.getElementById('page').getBoundingClientRect().width }; })()`);
+  const views = attached();
+  const fills = views.length === 1 && views[0].webContents === ctx.tabs.activeContents() &&
+    Math.abs(views[0].getBounds().width - Math.round(body.width * zoom)) <= 1 && Math.abs(body.width - body.page) <= 1;
+  const named = await screen();
+  check('given an address it stays on its own, filling the whole page area, named over it and in the address bar',
+    fills && together.solo === plus && layoutOf(together) === arranged && named.head === 'Site B' &&
+    named.address === `${site}/b`, `${JSON.stringify(views.map((v) => v.getBounds()))} ${JSON.stringify(body)}`);
+  await shot('09-solo-page');
+
+  await bridge('selectTab', groupIds[2]);
+  await until(() => groupIds.every((id) => idle({ id })) && attached().length === 4, 'the group back');
+  await wait(400);
+  const back = await screen();
+  check('clicking a tab of the group brings the whole group back as it was, that pane focused',
+    together.solo === null && layoutOf(together) === arranged && together.focus === 2 && back.boxes.join() === groupIds.join() &&
+    !back.waiting && back.focused === groupIds[2] && back.lit === '4' && back.marked === '' &&
+    together.tabs.some((tab) => tab.id === plus) && !back.boxes.includes(plus), JSON.stringify(back));
+  await shot('10-group-back');
+
+  // Ctrl+Tab from the last pane goes on to the first tab outside the group, through the menu's own entry.
+  await bridge('focusPane', together.id, 3);
+  const lastPage = ctx.tabs.activeContents();
+  const nextTab = Menu.getApplicationMenu().items.find((item) => item.label === 'View').submenu.items
+    .find((item) => item.label === 'Next tab');
+  nextTab.click();
+  await until(() => idle({ id: fifth }), 'the fifth tab on its own');
+  lastPage.focus(); // a page of the group behind it takes the focus: the group must stay behind
+  await wait(500);
+  check('Ctrl+Tab past the group shows the next tab on its own; a hidden group page taking focus changes nothing',
+    together.solo === fifth && layoutOf(together) === arranged && together.focus === 3 && attached().length === 1,
+    `${together.solo === fifth} ${together.focus}`);
+
+  // Putting a tab in the group is deliberate: the tab menu, through the code a click runs.
+  const menuItem = (tabId, start) => tabMenuTemplate(ctx, tabId).find((item) => item.label?.startsWith(start));
+  const replaced = together.tabs.find((tab) => tab.id === together.panes[3]);
+  const put = menuItem(fifth, 'Put in the group');
+  const putLabel = put?.label;
+  put?.click();
+  await until(() => idle({ id: fifth }) && attached().length === 4, 'the group with the fifth tab');
+  await wait(300);
+  const joined = await screen();
+  check('the tab menu puts a tab in the group, in place of the focused pane\'s tab, and says which',
+    putLabel === `Put in the group, in place of "${tabLabel(replaced)}"` && together.panes[3] === fifth &&
+    together.panes.slice(0, 3).join() === groupIds.slice(0, 3).join() && together.solo === null && together.focus === 3 &&
+    joined.boxes.join() === together.panes.join() && together.tabs.includes(replaced) &&
+    await dom(`Boolean(document.querySelector('#tab-rest [data-id="${replaced.id}"]'))`), putLabel);
+  menuItem(fifth, 'Take out of the group').click();
+  await wait(300);
+  const emptied = together.panes[3] === null && together.tabs.some((tab) => tab.id === fifth) &&
+    await dom(`document.querySelector('#page .pane[data-index="3"] h1')?.textContent === 'Nothing here yet.'`);
+  const putBack = menuItem(replaced.id, 'Put in the group');
+  const putBackLabel = putBack?.label;
+  putBack?.click();
+  await wait(300);
+  check('Take out of the group empties its pane; the next tab put in goes there, replacing nothing',
+    emptied && putBackLabel === 'Put in the group' && together.panes.join() === groupIds.join(), putBackLabel);
+
+  // "Open a new tab here" in an empty pane is a request for that pane.
+  menuItem(groupIds[1], 'Take out of the group').click();
+  await wait(300);
+  await dom(`document.querySelector('#page .pane[data-index="1"] .page-note .primary').click()`);
+  await until(() => together.panes[1] && !groupIds.includes(together.panes[1]), 'a new tab in pane 2');
+  const here = together.panes[1];
+  await wait(300);
+  const inPane = together.solo === null && together.focus === 1 && together.activeTabId === here &&
+    await dom(`document.querySelector('#page .pane[data-index="1"] h1')?.textContent === 'Where does Together post?'`);
+  menuItem(groupIds[1], 'Put in the group').click();
+  await wait(300);
+  check('Open a new tab here puts the tab in that pane; a blank tab pushed out of the group is removed',
+    inPane && together.panes.join() === groupIds.join() && !together.tabs.some((tab) => tab.id === here), here);
+
+  // Memory: the solo tab is on screen; the group behind it is not.
+  await bridge('selectTab', plus);
+  await until(() => idle({ id: plus }) && attached().length === 1, 'the solo tab again');
+  await bridge('updateSettings', { maxLiveTabs: 1 });
+  await until(() => groupIds.every((id) => !live({ id })), 'the group behind asleep');
+  check('a solo tab is never put to sleep; the group waiting behind it can be',
+    live({ id: plus }) && groupIds.every((id) => !live({ id })) && together.solo === plus);
+  await bridge('updateSettings', { maxLiveTabs: 6 });
+  await bridge('selectTab', groupIds[0]);
+  await until(() => groupIds.every((id) => idle({ id })) && attached().length === 4, 'the group awake');
+  // Pages that wake together each grab the focus once as they get ready; the pane clicked keeps it.
+  await wait(500);
+  check("the group's pages load again when it comes back, and the pane clicked keeps the focus",
+    groupIds.every((id) => live({ id })) && together.focus === 0 && together.activeTabId === groupIds[0],
+    `live ${groupIds.map((id) => live({ id })).join()}, pane ${together.focus}, keyboard in it ${ctx.tabs.activeContents()?.isFocused()}`);
+
+  // The solo tab is part of what a brand remembers: save, then load the file the way a start does.
+  await bridge('selectTab', plus);
+  await bridge('selectBrand', brand().id);
+  await bridge('selectBrand', together.id);
+  await wait(400);
+  const switched = together.solo === plus && layoutOf(together) === arranged && attached().length === 1 &&
+    (await screen()).boxes.join() === plus;
+  ctx.store.flush();
+  const file = path.join(process.env.FANOUT_USER_DATA, 'fanout.json');
+  ctx.store.data = new JsonStore(file, { sanitize }).data;
+  ctx.tabs.refresh();
+  await wait(600);
+  const loaded = ctx.store.data.brands.find((b) => b.id === together.id);
+  const reloaded = await screen();
+  check('switching brands and back, and saving and loading the profile, keep the solo tab in front of the group',
+    switched && loaded.solo === plus && loaded.activeTabId === plus && layoutOf(loaded) === arranged &&
+    reloaded.boxes.join() === plus && reloaded.waiting && reloaded.head === 'Site B' && attached().length === 1,
+    JSON.stringify(reloaded));
   await ctx.deleteBrand(together.id, { ask: false });
   await bridge('createBrand', { name: 'Apart', color: '#18a36b', folder: '', together: false, urls: [`${site}/a`, `${site}/b`] });
   check('separate tabs: one page on screen', ctx.store.data.brands[1].panes.length === 1);
@@ -346,9 +494,9 @@ async function run(ctx) {
 
   // ---- new tabs: named by their page, not by a rename box left as it was
   const tabOf = (id) => brand().tabs.find((tab) => tab.id === id);
-  /** The tab's label in the strip and over the focused pane. */
+  /** The tab's label in the strip and over its box in the page area. */
   const labels = async (id) => (await dom(`[document.querySelector('#tabs [data-id="${id}"] .tab-label')?.textContent,
-    document.querySelector('#page .pane.is-focused .pane-title')?.textContent]`)).join(' / ');
+    document.querySelector('#page .pane[data-tab="${id}"] .pane-title')?.textContent]`)).join(' / ');
   /** Open a tab's rename box as a double-click does, type (or not), press Enter. Returns what the box opened with. */
   const rename = (id, typed = null) => dom(`(() => {
     document.querySelector('#tabs [data-id="${id}"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
@@ -360,6 +508,7 @@ async function run(ctx) {
     return opened;
   })()`);
 
+  // Acme still shows two pages side by side, so a new tab comes up on its own, in front of them.
   const fresh = await bridge('createTab', brand().id);
   await until(() => dom(`Boolean(document.querySelector('#tabs [data-id="${fresh}"]'))`), 'new tab in the strip');
   const boxText = await rename(fresh);
@@ -384,15 +533,15 @@ async function run(ctx) {
   check('a typed name is kept; emptying the box gives the page title back',
     typedName === 'Acme reels' && tabOf(fresh).name === '', await labels(fresh));
 
-  // ---- a blank tab lives only in a pane
+  // ---- a blank tab lives only on screen
   const stray = await bridge('createTab', brand().id);
   await bridge('createBrand', { name: 'Elsewhere', color: '#8a4fff', folder: '', urls: [] });
-  const awayWhile = ctx.store.data.activeBrandId !== brand().id && brand().panes.includes(stray);
+  const awayWhile = ctx.store.data.activeBrandId !== brand().id && brand().solo === stray;
   await ctx.deleteBrand(ctx.store.data.brands[1].id, { ask: false });
-  check('a blank tab stays in its pane while another brand is shown', awayWhile && Boolean(tabOf(stray)));
+  check('a blank tab stays on screen while another brand is shown', awayWhile && Boolean(tabOf(stray)));
   await bridge('selectTab', b.id);
   await wait(300);
-  check('a blank tab whose pane another tab takes is removed; a tab with a page stays',
+  check('a blank tab that leaves the screen (the group came back) is removed; a tab with a page stays',
     !tabOf(stray) && Boolean(tabOf(fresh)) && brand().panes.join() === [a.id, b.id].join() &&
     await dom(`document.querySelector('#tabs [data-id="${stray}"]') === null`), brand().tabs.map((tab) => tab.title || 'blank').join());
   await bridge('closeTab', fresh);
