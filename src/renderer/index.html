@@ -27,9 +27,13 @@
       <button id="go-home" class="tool" title="This tab's home page (Alt+Home)" aria-label="Home page"></button>
       <input id="address" type="text" spellcheck="false" autocomplete="off"
              placeholder="Type an address, or search" aria-label="Address">
+      <div id="layouts" role="group" aria-label="Pages side by side"></div>
       <button id="toggle-panel" class="tool" title="Show or hide files (Ctrl+B)" aria-label="Show or hide files"></button>
     </div>
-    <div id="page"></div>
+    <div id="page">
+      <div id="split-x" class="pane-split" role="separator" aria-orientation="vertical"></div>
+      <div id="split-y" class="pane-split" role="separator" aria-orientation="horizontal"></div>
+    </div>
   </main>
 
   <div id="splitter" role="separator" aria-orientation="vertical" title="Drag to resize"></div>

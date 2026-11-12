@@ -104,14 +104,14 @@ function renderTabs() {
   const brand = activeBrand();
   reconcile($('tabs'), brand?.tabs ?? [], {
     key: (tab) => tab.id,
-    signature: (tab) => [tabLabel(tab), tab.favicon, tab.id === brand.activeTabId, tab.live, tab.loading,
+    signature: (tab) => [tabLabel(tab), tab.favicon, tab.id === brand.activeTabId, brand.panes.includes(tab.id), tab.live, tab.loading,
       tab.audible, tab.keepAwake, tab.temp, tab.url, metrics.tabs[tab.id] ?? ''].join('|'),
-    create: (tab) => tabElement(tab, tab.id === brand.activeTabId),
+    create: (tab) => tabElement(tab, tab.id === brand.activeTabId, brand.panes.includes(tab.id)),
   });
   $('new-tab').disabled = !brand;
 }
 
-function tabElement(tab, selected) {
+function tabElement(tab, selected, onScreen) {
   const label = tabLabel(tab);
   const asleep = !tab.live && Boolean(tab.url);
   const memory = metrics.tabs[tab.id];
@@ -125,7 +125,7 @@ function tabElement(tab, selected) {
       : letter(label);
 
   return h('div', {
-    class: `tab${selected ? ' is-active' : ''}${asleep ? ' is-asleep' : ''}${tab.temp ? ' is-temp' : ''}`,
+    class: `tab${selected ? ' is-active' : onScreen ? ' is-shown' : ''}${asleep ? ' is-asleep' : ''}${tab.temp ? ' is-temp' : ''}`,
     role: 'tab',
     'aria-selected': String(selected),
     title: tip,
@@ -229,6 +229,15 @@ function wireToolbar() {
   $('open-settings').onclick = () => openSettingsDialog({ api, settings: state.settings, version: state.version });
   $('toggle-panel').onclick = togglePanel;
 
+  const names = ['One page', 'Two pages side by side', 'Three pages', 'Four pages'];
+  $('layouts').append(...names.map((name, i) => h('button', {
+    class: 'tool',
+    title: name,
+    'aria-label': name,
+    dataset: { count: String(i + 1) },
+    onclick: () => { const brand = activeBrand(); if (brand) api.setLayout(brand.id, { count: i + 1 }); },
+  }, icon(`layout${i + 1}`))));
+
   const address = $('address');
   address.addEventListener('focus', () => address.select());
   address.addEventListener('keydown', (e) => {
@@ -240,61 +249,106 @@ function wireToolbar() {
   });
 }
 
-// --------------------------------------------------------------- page area
+// ------------------------------------------------------------------- panes
 
-// What is drawn where the page goes when there is no page to show. The real
-// page is a separate layer the main process places exactly over this box.
-let pageSignature = '';
+// A brand shows one to four of its tabs side by side. Each pane is a box
+// here; the real page is a separate layer the main process places exactly
+// over the pane's body. What is drawn in the body shows only when there is no
+// page to put there: no brand, an empty pane, a blank or sleeping tab.
+let panesSignature = '';
+let dragSplit = null; // divider positions while one is being dragged
 
-function renderPage() {
+const paneKind = (brand, tab) =>
+  (!brand ? 'welcome'
+    : !tab ? 'empty'
+      : !tab.url ? 'blank'
+        : tab.crashed ? 'crashed'
+          : tab.error ? 'error'
+            : tab.parked ? 'asleep'
+              : 'page');
+
+function renderPanes() {
   const brand = activeBrand();
-  const tab = activeTab();
-  const kind = !brand ? 'welcome'
-    : !tab || !tab.url ? 'blank'
-      : tab.crashed ? 'crashed'
-        : tab.error ? 'error'
-          : tab.parked ? 'asleep'
-            : 'page';
-  const signature = [kind, brand?.id, brand?.name, tab?.id, tab?.error?.description, tab?.error?.url].join('|');
-  if (signature === pageSignature) return;
-  pageSignature = signature;
-
+  const tabs = (brand?.panes ?? [null]).map((id) => brand?.tabs.find((tab) => tab.id === id) ?? null);
   const page = $('page');
-  const wake = () => api.tabAct(tab.id, 'wake');
-  const reload = () => api.tabAct(tab.id, 'reload');
-  const views = {
-    page: () => [],
-    welcome: () => [
-      h('h1', {}, 'Every account of every brand, in one window.'),
-      h('p', {}, 'A brand keeps its own sign-ins, its own tabs and its own folder of things to post. ' +
-        'Drag a video from the folder onto the page and upload it the way you always do.'),
-      h('button', { class: 'primary', onclick: addBrand }, 'Add your first brand'),
-    ],
-    blank: () => [
-      h('h1', {}, `Where does ${brand.name} post?`),
-      h('p', {}, 'Pick a place to start, or type any address in the bar above. Sign in once: this brand stays signed in.'),
-      h('div', { class: 'presets' }, PRESETS.map((preset) =>
-        h('button', { class: 'preset', onclick: () => openPreset(preset.url) }, preset.name))),
-    ],
-    asleep: () => [
-      h('h1', {}, 'This tab is asleep.'),
-      h('p', {}, 'It is using no memory. Waking it loads the page again.'),
-      h('button', { class: 'primary', onclick: wake }, 'Wake tab'),
-    ],
-    crashed: () => [
-      h('h1', {}, 'This page stopped working.'),
-      h('p', {}, 'The page ran out of memory or crashed. Nothing else in fanout was affected.'),
-      h('button', { class: 'primary', onclick: wake }, 'Load it again'),
-    ],
-    error: () => [
-      h('h1', {}, 'This page did not load.'),
-      h('p', {}, `${tab.error.url || tab.url}`),
-      h('p', { class: 'quiet' }, friendlyError(tab.error)),
-      h('button', { class: 'primary', onclick: reload }, 'Try again'),
-    ],
-  };
-  page.className = `page-${kind}`;
-  page.replaceChildren(h('div', { class: 'page-note' }, views[kind]()));
+  page.dataset.count = String(tabs.length);
+  page.style.setProperty('--sx', String(dragSplit?.x ?? brand?.splitX ?? 0.5));
+  page.style.setProperty('--sy', String(dragSplit?.y ?? brand?.splitY ?? 0.5));
+
+  const signature = JSON.stringify([brand?.id, brand?.name, brand?.focus, tabs.map((tab) =>
+    [paneKind(brand, tab), tab?.id, tab && tabLabel(tab), tab?.favicon, tab?.error?.description, tab?.error?.url])]);
+  if (signature !== panesSignature) {
+    panesSignature = signature;
+    // The two dividers stay in place so that a drag survives a redraw.
+    for (const old of page.querySelectorAll('.pane')) old.remove();
+    page.prepend(...tabs.map((tab, index) => paneElement(brand, tab, index, tabs.length)));
+  }
+  reportBounds();
+}
+
+function paneElement(brand, tab, index, count) {
+  const kind = paneKind(brand, tab);
+  const focused = Boolean(brand) && index === brand.focus;
+  return h('section', {
+    class: `pane${focused && count > 1 ? ' is-focused' : ''}`,
+    dataset: { index: String(index) },
+    onmousedown: () => { if (brand && !focused) api.focusPane(brand.id, index); },
+  },
+  count > 1 ? h('header', { class: 'pane-head', title: tab?.url || '' },
+    tab?.favicon ? h('img', { class: 'favicon', src: tab.favicon, alt: '', onerror: (e) => e.target.remove() }) : null,
+    h('span', { class: 'pane-title' }, tab ? tabLabel(tab) : 'Empty')) : null,
+  h('div', { class: 'pane-body' }, h('div', { class: 'page-note' }, paneNote(kind, brand, tab, index))));
+}
+
+/** What an empty pane body says, and the one thing to do about it. */
+function paneNote(kind, brand, tab, index) {
+  const button = (label, onclick) => h('button', { class: 'primary', onclick }, label);
+  switch (kind) {
+    case 'welcome':
+      return [
+        h('h1', {}, 'Every account of every brand, in one window.'),
+        h('p', {}, 'A brand keeps its own sign-ins, its own tabs and its own folder of things to post. ' +
+          'Drag a video from the folder onto the page and upload it the way you always do.'),
+        button('Add your first brand', addBrand),
+      ];
+    case 'empty':
+      return [
+        h('h1', {}, 'Nothing here yet.'),
+        h('p', {}, 'Click this pane, then pick a tab above to show it here.'),
+        button('Open a new tab here', async () => {
+          await api.focusPane(brand.id, index);
+          newTab();
+        }),
+      ];
+    case 'blank':
+      return [
+        h('h1', {}, `Where does ${brand.name} post?`),
+        h('p', {}, 'Pick a place to start, or type any address in the bar above. Sign in once: this brand stays signed in.'),
+        h('div', { class: 'presets' }, PRESETS.map((preset) =>
+          h('button', { class: 'preset', onclick: () => api.navigate(tab.id, preset.url) }, preset.name))),
+      ];
+    case 'asleep':
+      return [
+        h('h1', {}, 'This tab is asleep.'),
+        h('p', {}, 'It is using no memory. Waking it loads the page again.'),
+        button('Wake tab', () => api.tabAct(tab.id, 'wake')),
+      ];
+    case 'crashed':
+      return [
+        h('h1', {}, 'This page stopped working.'),
+        h('p', {}, 'The page ran out of memory or crashed. Nothing else in fanout was affected.'),
+        button('Load it again', () => api.tabAct(tab.id, 'wake')),
+      ];
+    case 'error':
+      return [
+        h('h1', {}, 'This page did not load.'),
+        h('p', {}, tab.error.url || tab.url),
+        h('p', { class: 'quiet' }, friendlyError(tab.error)),
+        button('Try again', () => api.tabAct(tab.id, 'reload')),
+      ];
+    default:
+      return [];
+  }
 }
 
 function friendlyError({ code, description }) {
@@ -304,25 +358,27 @@ function friendlyError({ code, description }) {
   return description ? `The browser reported: ${description}` : 'The site could not be reached.';
 }
 
-async function openPreset(url) {
+function renderLayouts() {
   const brand = activeBrand();
-  const tab = activeTab();
-  if (tab && !tab.url) await api.navigate(tab.id, url);
-  else await api.createTab(brand.id, url);
+  for (const button of $('layouts').children) {
+    button.disabled = !brand;
+    button.classList.toggle('is-on', Boolean(brand) && Number(button.dataset.count) === brand.panes.length);
+  }
 }
-
 // ------------------------------------------------------------------ layout
 
 let boundsQueued = false;
 
-/** Tell the main process where the page layer goes. At most once per frame. */
+/** Tell the main process where each pane's page goes. At most once per frame. */
 function reportBounds() {
   if (boundsQueued) return;
   boundsQueued = true;
   requestAnimationFrame(() => {
     boundsQueued = false;
-    const { x, y, width, height } = $('page').getBoundingClientRect();
-    api.setPageBounds({ x, y, width, height });
+    api.setPageBounds([...$('page').querySelectorAll('.pane-body')].map((body) => {
+      const { x, y, width, height } = body.getBoundingClientRect();
+      return { x, y, width, height };
+    }));
   });
 }
 
@@ -349,10 +405,12 @@ function draggable(handle, { move, done }) {
     if (down.button !== 0) return;
     handle.setPointerCapture(down.pointerId);
     document.body.classList.add('is-resizing');
+    document.body.style.cursor = getComputedStyle(handle).cursor;
     const onMove = (e) => move(e);
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove);
       document.body.classList.remove('is-resizing');
+      document.body.style.cursor = '';
       done();
     };
     handle.addEventListener('pointermove', onMove);
@@ -382,6 +440,26 @@ function wireLayout() {
     done: () => api.updateSettings({ previewHeight: state.settings.previewHeight }),
   });
 
+  // The dividers between panes. Positions are shares of the page area.
+  const split = (axis) => ({
+    move: (e) => {
+      const brand = activeBrand();
+      const area = $('page').getBoundingClientRect();
+      const share = axis === 'x' ? (e.clientX - area.left) / area.width : (e.clientY - area.top) / area.height;
+      dragSplit = { x: brand.splitX, y: brand.splitY, ...dragSplit, [axis]: Math.max(0.2, Math.min(0.8, share)) };
+      renderPanes();
+    },
+    done: () => {
+      const brand = activeBrand();
+      if (!brand || !dragSplit) return;
+      Object.assign(brand, { splitX: dragSplit.x, splitY: dragSplit.y });
+      api.setLayout(brand.id, dragSplit);
+      dragSplit = null;
+    },
+  });
+  draggable($('split-x'), split('x'));
+  draggable($('split-y'), split('y'));
+
   // A file dropped on the interface itself must not replace it.
   for (const type of ['dragover', 'drop']) {
     window.addEventListener(type, (e) => e.preventDefault());
@@ -397,7 +475,8 @@ function render() {
   renderRail();
   renderTabs();
   renderToolbar();
-  renderPage();
+  renderLayouts();
+  renderPanes();
   renderStatus();
   panel.update(state);
 }

@@ -58,8 +58,8 @@ export function registerIpc(ctx) {
     ctx.changed();
     tabs.sweep();
   });
-  on('layout:bounds', (rect) => {
-    if (rect && typeof rect === 'object') tabs.setBounds(rect);
+  on('layout:bounds', (rects) => {
+    if (Array.isArray(rects)) tabs.setBounds(rects);
   });
   on('layout:covered', (covered) => tabs.setCovered(covered === true));
   handle('clipboard:write', (text) => clipboard.writeText(String(text ?? '').slice(0, MAX_COPY)));
@@ -82,6 +82,10 @@ export function registerIpc(ctx) {
   handle('brand:delete', (brandId) => ctx.deleteBrand(brandId));
   handle('brand:select', (brandId) => tabs.selectBrand(brandId));
   handle('brand:menu', (brandId) => popupBrandMenu(ctx, brandId));
+  handle('brand:layout', (brandId, layout) => {
+    if (layout && typeof layout === 'object') tabs.setLayout(brandId, layout);
+  });
+  handle('pane:focus', (brandId, index) => tabs.focusPane(brandId, index));
   handle('brand:choose-folder', async (current) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(ctx.window, {
       title: 'Folder this brand uploads from',

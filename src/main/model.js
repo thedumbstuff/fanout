@@ -25,6 +25,10 @@ const LIMITS = {
   previewHeight: [100, 800],
 };
 
+export const MAX_PANES = 4;
+const MIN_SPLIT = 0.2;
+const MAX_SPLIT = 0.8;
+
 const BRAND_ID = /^b_[a-f0-9]{8,}$/;
 const TAB_ID = /^t_[a-f0-9]{8,}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -84,14 +88,80 @@ function cleanBrand(raw, index) {
   const tabs = (Array.isArray(raw.tabs) ? raw.tabs : [])
     .map(cleanTab)
     .filter((tab) => tab && !seen.has(tab.id) && seen.add(tab.id));
+  // Panes: each holds one tab or nothing, and a tab is in at most one pane.
+  const placed = new Set();
+  let panes = (Array.isArray(raw.panes) ? raw.panes : []).slice(0, MAX_PANES).map((id) =>
+    (seen.has(id) && !placed.has(id) && placed.add(id) ? id : null));
+  if (!panes.length) panes = [seen.has(raw.activeTabId) ? raw.activeTabId : (tabs[0]?.id ?? null)];
+  const focus = Number.isInteger(raw.focus) && raw.focus >= 0 && raw.focus < panes.length ? raw.focus : 0;
+
   return {
     id: raw.id,
     name: text(raw.name, 60) || 'Brand',
     color: HEX.test(raw.color) ? raw.color.toLowerCase() : BRAND_COLORS[index % BRAND_COLORS.length],
     folder: typeof raw.folder === 'string' ? raw.folder : '',
-    activeTabId: tabs.some((tab) => tab.id === raw.activeTabId) ? raw.activeTabId : (tabs[0]?.id ?? null),
+    panes,
+    focus,
+    splitX: ratio(raw.splitX),
+    splitY: ratio(raw.splitY),
+    activeTabId: panes[focus],
     tabs,
   };
+}
+
+/** A divider position: a share of the width or height, kept away from the edges. */
+function ratio(value) {
+  return Number.isFinite(value) ? Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, value)) : 0.5;
+}
+
+// ------------------------------------------------------------------ panes
+//
+// A brand shows one to four of its tabs side by side:
+//
+//   1        2          3            4
+//   +---+    +---+---+  +---+---+    +---+---+
+//   | 0 |    | 0 | 1 |  |   | 1 |    | 0 | 1 |
+//   +---+    +---+---+  | 0 +---+    +---+---+
+//                       |   | 2 |    | 2 | 3 |
+//                       +---+---+    +---+---+
+//
+// `splitX` and `splitY` are where the two dividers sit. `focus` is the pane
+// the address bar and the tab strip act on; `activeTabId` is always the tab
+// in that pane (or null) and is kept only so callers need not look it up.
+
+/** Show a tab: if a pane already has it, focus that pane; else put it in the focused one. */
+export function showTab(brand, tabId) {
+  const at = brand.panes.indexOf(tabId);
+  if (at !== -1) brand.focus = at;
+  else brand.panes[brand.focus] = tabId;
+  brand.activeTabId = tabId;
+}
+
+export function focusPane(brand, index) {
+  if (!Number.isInteger(index) || index < 0 || index >= brand.panes.length) return;
+  brand.focus = index;
+  brand.activeTabId = brand.panes[index];
+}
+
+/**
+ * Change how many panes a brand shows. New panes take the tabs that are not
+ * on screen yet, in tab order. When panes are removed the focused tab stays.
+ */
+export function setPaneCount(brand, count) {
+  const wanted = Math.min(MAX_PANES, Math.max(1, Math.round(Number(count)) || 1));
+  const focused = brand.panes[brand.focus];
+  const panes = brand.panes.slice(0, wanted);
+  if (focused && !panes.includes(focused)) panes[wanted - 1] = focused;
+  const spare = brand.tabs.map((tab) => tab.id).filter((id) => !panes.includes(id));
+  while (panes.length < wanted) panes.push(spare.shift() ?? null);
+  brand.panes = panes;
+  brand.focus = focused ? panes.indexOf(focused) : Math.min(brand.focus, wanted - 1);
+  brand.activeTabId = panes[brand.focus];
+}
+
+export function setSplit(brand, { x, y } = {}) {
+  if (Number.isFinite(x)) brand.splitX = ratio(x);
+  if (Number.isFinite(y)) brand.splitY = ratio(y);
 }
 
 function cleanWindow(raw) {
@@ -147,7 +217,8 @@ export function createBrand(data, { name, color, folder, urls = [] }) {
     data.brands.length,
   );
   for (const url of urls) addTab(brand, { url });
-  brand.activeTabId = brand.tabs[0]?.id ?? null;
+  brand.panes = [brand.tabs[0]?.id ?? null];
+  brand.activeTabId = brand.panes[0];
   data.brands.push(brand);
   data.activeBrandId = brand.id;
   return brand;
@@ -193,14 +264,20 @@ export function addTab(brand, { url = '', temp = false, afterId = null } = {}) {
   return tab;
 }
 
-/** Remove a tab; if it was the active one, its right-hand neighbour takes over. */
+/**
+ * Remove a tab. If it was on screen, its pane takes the nearest tab that is
+ * not on screen already (right-hand neighbour first), or stays empty.
+ */
 export function removeTab(brand, tabId) {
   const index = brand.tabs.findIndex((tab) => tab.id === tabId);
   if (index === -1) return null;
   const [tab] = brand.tabs.splice(index, 1);
-  if (brand.activeTabId === tabId) {
-    brand.activeTabId = (brand.tabs[index] ?? brand.tabs[index - 1])?.id ?? null;
+  const pane = brand.panes.indexOf(tabId);
+  if (pane !== -1) {
+    const candidates = [brand.tabs[index], brand.tabs[index - 1], ...brand.tabs];
+    brand.panes[pane] = candidates.find((t) => t && !brand.panes.includes(t.id))?.id ?? null;
   }
+  brand.activeTabId = brand.panes[brand.focus];
   return tab;
 }
 

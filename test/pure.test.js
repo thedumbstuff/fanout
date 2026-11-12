@@ -8,7 +8,8 @@ import { test } from 'node:test';
 
 import { decode, fileKind, FolderWatcher, listDir, readText, MAX_TEXT_BYTES } from '../src/main/files.js';
 import {
-  addTab, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, removeTab, sanitize,
+  addTab, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, focusPane, removeTab, sanitize,
+  setPaneCount, setSplit, showTab,
 } from '../src/main/model.js';
 import { isInside, OutsideFolderError, resolveInside, toRel } from '../src/main/pathjail.js';
 import { PostedStore } from '../src/main/posted.js';
@@ -150,7 +151,7 @@ test('brands and tabs: create, add, remove, delete', () => {
   assert.deepEqual(destinations(acme).map((t) => t.url), ['https://a.example/'], 'temp and blank tabs are not destinations');
   assert.equal(findTab(data, opened.id).brand.id, acme.id);
 
-  acme.activeTabId = opened.id;
+  showTab(acme, opened.id);
   removeTab(acme, opened.id);
   assert.equal(acme.activeTabId, acme.tabs[1].id, 'right-hand neighbour takes over');
   removeTab(acme, acme.tabs[1].id);
@@ -165,6 +166,55 @@ test('brands and tabs: create, add, remove, delete', () => {
   assert.equal(data.activeBrandId, acme.id);
   deleteBrand(data, acme.id);
   assert.equal(data.activeBrandId, null);
+});
+
+test('panes: one to four tabs side by side, each tab in one pane only', () => {
+  const data = defaults();
+  const brand = createBrand(data, { name: 'Split', urls: ['https://a.example/', 'https://b.example/', 'https://c.example/'] });
+  const [a, b, c] = brand.tabs.map((tab) => tab.id);
+  assert.deepEqual(brand.panes, [a]);
+
+  setPaneCount(brand, 2);
+  assert.deepEqual(brand.panes, [a, b], 'a new pane takes the next tab not on screen');
+  assert.equal(brand.activeTabId, a, 'focus stays where it was');
+
+  showTab(brand, b);
+  assert.equal(brand.focus, 1, 'a tab already on screen is focused, not duplicated');
+  showTab(brand, c);
+  assert.deepEqual(brand.panes, [a, c], 'another tab replaces the focused pane');
+
+  setPaneCount(brand, 4);
+  assert.deepEqual(brand.panes, [a, c, b, null], 'a pane with no tab left stays empty');
+  setPaneCount(brand, 9);
+  assert.equal(brand.panes.length, 4, 'four at most');
+
+  focusPane(brand, 3);
+  assert.equal(brand.activeTabId, null);
+  focusPane(brand, 7);
+  assert.equal(brand.focus, 3, 'no such pane');
+  focusPane(brand, 2);
+  setPaneCount(brand, 1);
+  assert.deepEqual(brand.panes, [b], 'shrinking keeps the focused tab');
+  assert.equal(brand.focus, 0);
+
+  setPaneCount(brand, 3);
+  assert.deepEqual(brand.panes, [b, a, c]);
+  removeTab(brand, a);
+  assert.deepEqual(brand.panes, [b, null, c], 'no spare tab: the pane empties');
+  const d = addTab(brand, { url: 'https://d.example/' }).id;
+  removeTab(brand, c);
+  assert.deepEqual(brand.panes, [b, null, d], 'a spare tab fills the gap');
+
+  setSplit(brand, { x: 0.05, y: 0.66 });
+  assert.deepEqual([brand.splitX, brand.splitY], [0.2, 0.66], 'dividers stay away from the edges');
+  setSplit(brand, { x: 'wide' });
+  assert.equal(brand.splitX, 0.2);
+
+  const again = sanitize(JSON.parse(JSON.stringify(data))).brands[0];
+  assert.deepEqual([again.panes, again.focus, again.splitX, again.splitY], [brand.panes, brand.focus, 0.2, 0.66], 'the layout is saved');
+  const damaged = sanitize({ brands: [{ ...JSON.parse(JSON.stringify(brand)), panes: [b, b, 't_ffffffffff', d, d, b], focus: 9 }] }).brands[0];
+  assert.deepEqual(damaged.panes, [b, null, null, d], 'no duplicates, no unknown tabs, four at most');
+  assert.equal(damaged.focus, 0);
 });
 
 test('data from disk is repaired, not trusted', () => {

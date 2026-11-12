@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "fanout",
   "productName": "fanout",
   "version": "0.1.0",
@@ -24,6 +24,7 @@
   "build": {
     "appId": "page.thedumbstuff.fanout",
     "productName": "fanout",
+    "npmRebuild": false,
     "files": [
       "src/**/*",
       "build/drag.png",

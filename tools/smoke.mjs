@@ -184,17 +184,44 @@ async function run(ctx) {
   await until(() => idle(b) && !ctx.tabs.runtime(b.id).error && b.url.endsWith('/b'), 'recovery');
   check('and recovers when a good address is opened', !ctx.tabs.runtime(b.id).error && b.title === 'Site B', b.title);
 
+  // ---- split view: pages side by side, remembered per brand
+  await bridge('selectTab', a.id);
+  await bridge('setLayout', brand().id, { count: 2 });
+  await until(() => idle(a) && idle(b), 'both panes loaded');
+  check('two panes show two tabs at once', brand().panes.join() === [a.id, b.id].join() && live(a) && live(b));
+  await until(() => dom(`document.querySelectorAll('#page .pane').length === 2`), 'pane boxes');
+  const rects = await dom(`[...document.querySelectorAll('#page .pane-body')].map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.width)]; })`);
+  check('panes sit side by side', rects.length === 2 && rects[1][0] > rects[0][0] + rects[0][1] - 1, JSON.stringify(rects));
+  await bridge('setLayout', brand().id, { x: 0.7 });
+  await wait(300);
+  const wider = await dom(`Math.round(document.querySelector('#page .pane-body').getBoundingClientRect().width)`);
+  check('the divider resizes them', wider > rects[0][1] + 50, `${rects[0][1]}px -> ${wider}px`);
+  await bridge('focusPane', brand().id, 1);
+  check('focusing a pane points the address bar at its tab', brand().activeTabId === b.id);
+  await bridge('setLayout', brand().id, { count: 4 });
+  await wait(300);
+  check('four panes, the spare ones empty', brand().panes.length === 4 && brand().panes[2] === null &&
+    await dom(`document.querySelectorAll('#page .pane').length === 4`));
+  await shot('05-four-panes');
+  await bridge('updateSettings', { maxLiveTabs: 1 });
+  await wait(1500);
+  check('tabs on screen are never put to sleep', live(a) && live(b));
+  await bridge('updateSettings', { maxLiveTabs: 6 });
+  await bridge('setLayout', brand().id, { count: 2 });
+
   // ---- dialogs hide the page layer
   await dom(`document.getElementById('open-settings').click()`);
   await wait(300);
   check('settings dialog opens', await dom(`Boolean(document.querySelector('dialog[open]'))`));
-  await shot('05-settings');
+  await shot('06-settings');
   await dom(`document.querySelector('dialog[open] .primary').click()`);
 
   // ---- saving and deleting
   ctx.store.flush();
   const saved = JSON.parse(fs.readFileSync(path.join(process.env.FANOUT_USER_DATA, 'fanout.json'), 'utf8'));
   check('brands and tabs are saved', saved.brands[0]?.name === 'Acme Foods' && saved.brands[0].tabs.length === 2);
+  check('the layout is saved with the brand', saved.brands[0].panes.length === 2 && saved.brands[0].splitX === 0.7 &&
+    saved.brands[0].tabs.every((tab) => tab.url.startsWith(site)));
   check('nothing was written outside the profile and folder', !fs.existsSync(path.join(FOLDER, 'fanout.json')));
   await ctx.deleteBrand(brand().id, { ask: false });
   await wait(500);

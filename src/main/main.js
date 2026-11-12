@@ -115,6 +115,10 @@ async function boot() {
       color: brand.color,
       folder: brand.folder,
       activeTabId: brand.activeTabId,
+      panes: brand.panes,
+      focus: brand.focus,
+      splitX: brand.splitX,
+      splitY: brand.splitY,
       tabs: brand.tabs.map((tab) => ({
         ...tab,
         site: siteName(tab.homeUrl || tab.url),

@@ -1,0 +1,322 @@
+# fanout roadmap - SINGLE SOURCE OF TRUTH for the watchtower.
+# Edit this file to change status; the watchtower reads it live
+# (python watchtower/server.py -> http://127.0.0.1:8768).
+#
+# Task schema:
+#   id          P<phase>.<n>
+#   title       short name
+#   status      done | in_progress | pending | blocked
+#   effort      1..5 story points (drives the % complete)
+#   depends_on  list of task ids; unmet deps are shown as "blocked by"
+#   why         plain-English reason it is pending/blocked, or what it needs
+#   decision    id of an open decision (below) that gates the task (optional)
+#   checks      automated proofs that a "done" claim is real (optional):
+#                 {type: path, path: relative/file}
+#                 {type: cmd,  run: "shell command"}   # exit 0 = pass, cwd = repo root
+# Decision schema (open_decisions): id, title, why, blocks [task ids], default,
+#   status  open | resolved | deferred   (resolved decisions block nothing)
+#   outcome text recorded when resolved/deferred
+# Feature schema (features): id, title, source (own), area, status
+#   (shipped | building | planned | idea | wont), task, note
+#
+# Status semantics in the UI:
+#   done + all checks pass  -> VERIFIED
+#   done + a check fails    -> CLAIMED (something is wrong, look at it)
+#   pending with unmet deps -> BLOCKED BY <deps>
+#   blocked                 -> needs a human decision/action (see why/decision)
+#
+# The smoke test (npm run smoke) opens a real window, so it is not a check
+# here: the watchtower re-runs checks often. Run it by hand after a change.
+
+project: fanout
+tagline: One window for every brand's social accounts - isolated sign-ins, tabs per brand, a file panel to drag uploads from
+updated: 2026-11-12
+
+open_decisions:
+  - id: D1
+    title: App shell
+    status: resolved
+    outcome: "Electron (owner chose it 2026-11-12) for Windows, macOS and Linux. Vanilla JS, no framework, no bundler, no runtime dependencies."
+    why: Session partitions and embedded pages are most mature in Electron.
+    blocks: []
+    default: Electron
+  - id: D2
+    title: Automation
+    status: resolved
+    outcome: "None. fanout never clicks, types or reads inside a page; the owner posts by hand (owner's rule 2026-11-12, most platforms forbid bots). Revisit only if a platform allows it."
+    why: LinkedIn, TikTok, Instagram and X forbid automated activity; a public tool must not risk its users' accounts.
+    blocks: []
+    default: no automation
+  - id: D3
+    title: Licence
+    status: resolved
+    outcome: "MIT, same as lemonaid (taken as the default; the owner said open source and named no licence - change LICENSE if another is wanted)."
+    why: Open source under thedumbstuff.
+    blocks: []
+    default: MIT
+  - id: D4
+    title: Google sign-in inside fanout
+    status: open
+    why: "Google sometimes refuses sign-in in embedded browsers. Tabs present a plain Chrome user agent, which usually suffices, but only a real sign-in by the owner proves it. If refused: open that one sign-in in the system browser, or another fallback."
+    blocks: [P5.1]
+    default: keep the plain Chrome user agent; add a fallback only if the owner's test fails
+  - id: D5
+    title: Code signing
+    status: open
+    why: "Unsigned installers show a SmartScreen warning on Windows and are blocked by Gatekeeper on macOS until the user overrides. Certificates cost money (Windows OV/EV, Apple Developer 99 USD/yr)."
+    blocks: [P4.4]
+    default: ship unsigned first, like ContextWire
+
+phases:
+  - id: P0
+    name: Foundation
+    goal: Project skeleton, plan, watchtower.
+    tasks:
+      - id: P0.1
+        title: Electron 45 project, ES modules, no runtime dependencies
+        status: done
+        effort: 1
+        checks:
+          - {type: path, path: package.json}
+          - {type: path, path: node_modules/electron/dist}
+      - id: P0.2
+        title: roadmap.yaml + watchtower on port 8768
+        status: done
+        effort: 1
+        checks:
+          - {type: path, path: watchtower/server.py}
+          - {type: cmd, run: "python -m unittest discover -s watchtower/tests -q"}
+      - id: P0.3
+        title: README, CLAUDE.md, docs (architecture, memory, gotchas, changelog), MIT licence
+        status: done
+        effort: 2
+        checks:
+          - {type: path, path: README.md}
+          - {type: path, path: CLAUDE.md}
+          - {type: path, path: LICENSE}
+          - {type: path, path: docs/architecture.md}
+          - {type: path, path: docs/memory.md}
+          - {type: path, path: docs/gotchas.md}
+          - {type: path, path: docs/changelog.md}
+
+  - id: P1
+    name: Core
+    goal: Brands with isolated sign-ins, tabs, and a jailed view of each brand's folder.
+    tasks:
+      - id: P1.1
+        title: Saved data model (brands, tabs, settings) with repair on load, and an atomic JSON store
+        status: done
+        effort: 2
+        checks:
+          - {type: path, path: src/main/model.js}
+          - {type: path, path: src/main/store.js}
+          - {type: cmd, run: "npm test --silent"}
+      - id: P1.2
+        title: One browser session per brand (cookies, storage, cache), plain Chrome user agent, permission prompts remembered per brand and site
+        status: done
+        effort: 3
+        checks:
+          - {type: path, path: src/main/sessions.js}
+          - {type: path, path: src/main/useragent.js}
+      - id: P1.3
+        title: Tab manager - lazy loading, one attached page, sign-in popups, links to new tabs, load errors, crashes
+        status: done
+        effort: 5
+        depends_on: [P1.2]
+        checks:
+          - {type: path, path: src/main/tabs.js}
+          - {type: path, path: src/main/pages.js}
+      - id: P1.4
+        title: Brand folder - one directory at a time, text preview capped at 512 KB, paths cannot leave the folder
+        status: done
+        effort: 3
+        checks:
+          - {type: path, path: src/main/files.js}
+          - {type: path, path: src/main/pathjail.js}
+      - id: P1.5
+        title: Posted tracker - which file went to which tab, set by hand
+        status: done
+        effort: 2
+        checks:
+          - {type: path, path: src/main/posted.js}
+
+  - id: P2
+    name: Interface
+    goal: Brand rail, tab strip, address bar, file panel, text preview, dialogs.
+    tasks:
+      - id: P2.1
+        title: Window, preload bridge (fixed list of calls), application menu with all shortcuts
+        status: done
+        effort: 3
+        depends_on: [P1.3]
+        checks:
+          - {type: path, path: src/main/main.js}
+          - {type: path, path: src/main/ipc.js}
+          - {type: path, path: src/main/menus.js}
+          - {type: path, path: src/preload/preload.cjs}
+      - id: P2.2
+        title: Brand rail, tabs, toolbar, page placeholders, status bar with memory
+        status: done
+        effort: 4
+        depends_on: [P2.1]
+        checks:
+          - {type: path, path: src/renderer/app.js}
+          - {type: path, path: src/renderer/styles.css}
+      - id: P2.3
+        title: File panel - tree, multi-select, real file drag onto any page, posted marks, hide posted
+        status: done
+        effort: 4
+        depends_on: [P1.4, P1.5, P2.1]
+        checks:
+          - {type: path, path: src/renderer/files.js}
+          - {type: path, path: build/drag.png}
+      - id: P2.4
+        title: Text preview - click a .txt or .md file, select text and it is copied
+        status: done
+        effort: 2
+        depends_on: [P2.3]
+        checks:
+          - {type: path, path: src/renderer/preview.js}
+      - id: P2.5
+        title: Brand dialog (name, colour, folder, starter tabs) and memory settings
+        status: done
+        effort: 2
+        depends_on: [P2.2]
+        checks:
+          - {type: path, path: src/renderer/dialogs.js}
+      - id: P2.6
+        title: End-to-end smoke test of the real app (30 checks, run by hand - it opens a window)
+        status: done
+        effort: 3
+        depends_on: [P2.3, P2.4]
+        checks:
+          - {type: path, path: tools/smoke.mjs}
+
+  - id: P3
+    name: Memory
+    goal: Tabs that are not in use cost nothing, and nothing is lost by saving memory.
+    tasks:
+      - id: P3.1
+        title: Sleep policy - idle time and a cap on loaded tabs, least recently used first
+        status: done
+        effort: 3
+        depends_on: [P1.3]
+        checks:
+          - {type: path, path: src/main/sleeper.js}
+          - {type: cmd, run: "npm test --silent"}
+      - id: P3.2
+        title: Never sleep a tab that is uploading, playing sound, or holding unsaved typing
+        status: done
+        effort: 3
+        depends_on: [P3.1]
+        why: Upload detection looks only at request method and duration; unsaved work is the page's own beforeunload answer.
+      - id: P3.3
+        title: Memory measured on six real sites (2,724 MB loaded, 1,036 MB with five asleep)
+        status: done
+        effort: 2
+        depends_on: [P3.1]
+        checks:
+          - {type: path, path: tools/measure-memory.mjs}
+          - {type: path, path: docs/memory.md}
+      - id: P3.4
+        title: Close path that cannot hang (Electron 45 quit stalls after some sites)
+        status: done
+        effort: 2
+        why: Save, flush cookies and site storage, then end the process. See docs/gotchas.md.
+
+  - id: P4
+    name: Packaging and release
+    goal: Installers for Windows, macOS and Linux, downloadable from thedumbstuff.page.
+    tasks:
+      - id: P4.1
+        title: App icon and Windows installer (NSIS, per user)
+        status: done
+        effort: 2
+        checks:
+          - {type: path, path: build/icon.png}
+          - {type: path, path: "dist/fanout Setup 0.1.0.exe"}
+      - id: P4.2
+        title: macOS (.dmg) and Linux (AppImage, .deb) builds
+        status: pending
+        effort: 3
+        why: "They can only be built on those systems. .github/workflows/build.yml builds all three once the repository is pushed to GitHub (owner pushes)."
+        checks:
+          - {type: path, path: .github/workflows/build.yml}
+      - id: P4.3
+        title: Downloads on thedumbstuff.page and a page for fanout
+        status: pending
+        effort: 3
+        depends_on: [P4.1]
+        why: Outward-facing; owner deploys the site. Reuse the downloads service ContextWire's installer uses (thedumbstuff-site docs/installer.md).
+      - id: P4.4
+        title: Signed installers
+        status: blocked
+        effort: 2
+        decision: D5
+        why: Needs paid certificates; shipping unsigned first.
+      - id: P4.5
+        title: Automatic updates
+        status: pending
+        effort: 3
+        depends_on: [P4.3]
+        why: Needs a published download location first.
+
+  - id: P5
+    name: Proof with real accounts
+    goal: The owner signs in and posts for real - the parts no test of mine can cover.
+    tasks:
+      - id: P5.1
+        title: Sign in to YouTube (Google), LinkedIn, TikTok, Instagram, Facebook, X inside fanout
+        status: blocked
+        effort: 2
+        decision: D4
+        why: Needs the owner's accounts. Front pages of all six load; whether Google accepts a sign-in is untested.
+      - id: P5.2
+        title: Drag a real video from the file panel onto a real upload page and post it
+        status: pending
+        effort: 1
+        depends_on: [P5.1]
+        why: "The drag is a native OS file drag (the same call Explorer makes), verified only up to starting it. The drop needs a person and a signed-in upload page."
+      - id: P5.3
+        title: Use on macOS and Linux
+        status: pending
+        effort: 2
+        depends_on: [P4.2]
+        why: Written to be cross-platform, run only on Windows 11 so far.
+
+  - id: P6
+    name: Later
+    goal: Agreed or likely next steps, not part of the first version.
+    tasks:
+      - id: P6.1
+        title: Caption clipboard - write title, caption and hashtags once per post, copy buttons, user pastes
+        status: pending
+        effort: 3
+        why: Owner said "caption later" (2026-11-12). The tool still never types into a page.
+      - id: P6.2
+        title: Thumbnails and a quick look at images and videos in the file panel
+        status: pending
+        effort: 3
+      - id: P6.3
+        title: Reorder tabs and brands by dragging
+        status: pending
+        effort: 2
+      - id: P6.4
+        title: Find in page
+        status: pending
+        effort: 1
+      - id: P6.5
+        title: Posted marks follow a file that is renamed or moved inside the folder
+        status: pending
+        effort: 2
+
+features:
+  - {id: F1, title: Brands with their own sign-ins, source: own, area: sessions, status: shipped, task: P1.2, note: "Each brand is a separate cookie jar; the same site can be signed in differently in every brand"}
+  - {id: F2, title: Tabs per brand, source: own, area: workspace, status: shipped, task: P1.3, note: "Any address; nothing is specific to a platform"}
+  - {id: F3, title: File panel per brand with drag to upload, source: own, area: workspace, status: shipped, task: P2.3, note: "A real file drag, as from Explorer or Finder"}
+  - {id: F4, title: Text preview with select-to-copy, source: own, area: workspace, status: shipped, task: P2.4, note: "For caption files (.txt, .md)"}
+  - {id: F5, title: Posted tracker, source: own, area: status, status: shipped, task: P1.5, note: "A mark per file and tab, set by hand; hide what is posted everywhere"}
+  - {id: F6, title: Sleeping tabs, source: own, area: other, status: shipped, task: P3.1, note: "Unused tabs give their memory back; busy or unsaved tabs are left alone"}
+  - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
+  - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
+  - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}

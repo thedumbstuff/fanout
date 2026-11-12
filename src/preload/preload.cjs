@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('fanout', {
   deleteBrand: call('brand:delete'),
   selectBrand: call('brand:select'),
   brandMenu: call('brand:menu'),
+  setLayout: call('brand:layout'),
+  focusPane: call('pane:focus'),
   chooseFolder: call('brand:choose-folder'),
 
   createTab: call('tab:create'),

@@ -2,7 +2,8 @@
 //
 // A tab is a saved address. Only a "live" tab has a page (a WebContentsView
 // with its own process). Tabs are loaded the first time they are selected,
-// only the selected one is attached to the window, and background tabs are
+// only the tabs in the brand's panes (one to four) are attached to the window,
+// and background tabs are
 // put to sleep (page destroyed, address kept) by the policy in sleeper.js.
 //
 // Putting a tab to sleep asks the page first, the same way closing a browser
@@ -10,7 +11,7 @@
 // left alone until its owner has looked at it again.
 
 import { WebContentsView, app, dialog } from 'electron';
-import { addTab, findBrand, findTab, removeTab } from './model.js';
+import { addTab, findBrand, findTab, focusPane, removeTab, setPaneCount, setSplit, showTab } from './model.js';
 import { pickTabsToSleep } from './sleeper.js';
 import { isWebUrl, toUrl } from './urls.js';
 
@@ -30,8 +31,8 @@ export class TabManager {
   #tabByContents = new Map(); // webContents id -> tabId
   #parked = new Set(); // tabs asleep on purpose: selected, but not to be loaded
   #crashed = new Set();
-  #shown = null; // tabId of the view attached to the window
-  #bounds = { x: 0, y: 0, width: 0, height: 0 };
+  #attached = new Set(); // tabIds whose views are in the window right now
+  #bounds = []; // one rectangle per pane, as the interface laid them out
   #covered = false; // a dialog of the interface is open over the page
   #sweeper;
   #disposed = false;
@@ -56,12 +57,33 @@ export class TabManager {
 
   // ---------------------------------------------------------------- layout
 
-  /** Where the page goes inside the window, in the interface's own pixels. */
-  setBounds(rect) {
+  /** Where each pane's page goes inside the window, in the interface's own pixels. */
+  setBounds(rects) {
     const zoom = this.#window.webContents.getZoomFactor();
     const px = (n) => Math.max(0, Math.round(Number(n) * zoom) || 0);
-    this.#bounds = { x: px(rect.x), y: px(rect.y), width: px(rect.width), height: px(rect.height) };
-    this.#live.get(this.#shown)?.view.setBounds(this.#bounds);
+    this.#bounds = rects.slice(0, 4).map((rect) => (
+      { x: px(rect?.x), y: px(rect?.y), width: px(rect?.width), height: px(rect?.height) }));
+    this.#place();
+  }
+
+  /** Change a brand's panes: how many (count) and where the dividers sit (x, y). */
+  setLayout(brandId, { count, x, y } = {}) {
+    const brand = findBrand(this.#store.data, brandId);
+    if (!brand) return;
+    if (count !== undefined) setPaneCount(brand, count);
+    setSplit(brand, { x, y });
+    this.#store.touch();
+    this.#present();
+    this.sweep();
+  }
+
+  /** Make a pane the one the address bar and tab strip act on. */
+  focusPane(brandId, index) {
+    const brand = findBrand(this.#store.data, brandId);
+    if (!brand || brand.focus === index) return;
+    focusPane(brand, index);
+    this.#store.touch();
+    this.#present({ focus: true });
   }
 
   /** A dialog is open (true) or closed again: pages are drawn above the interface, so hide. */
@@ -85,7 +107,7 @@ export class TabManager {
   select(tabId) {
     const found = findTab(this.#store.data, tabId);
     if (!found) return;
-    found.brand.activeTabId = tabId;
+    showTab(found.brand, tabId);
     this.#store.data.activeBrandId = found.brand.id;
     this.#parked.delete(tabId);
     this.#crashed.delete(tabId);
@@ -208,8 +230,9 @@ export class TabManager {
   }
 
   sleepOthers() {
+    const onScreen = this.#onScreen();
     for (const tabId of [...this.#live.keys()]) {
-      if (tabId !== this.#activeTabId()) this.sleep(tabId);
+      if (!onScreen.has(tabId)) this.sleep(tabId);
     }
   }
 
@@ -231,14 +254,14 @@ export class TabManager {
     if (this.#disposed) return;
     const { sleepAfterMinutes, maxLiveTabs } = this.#store.data.settings;
     const now = Date.now();
-    const active = this.#activeTabId();
+    const onScreen = this.#onScreen();
     const vitals = [];
     for (const [id, live] of this.#live) {
       if (live.intent) continue; // already on its way out
       vitals.push({
         id,
         live: true,
-        visible: id === active,
+        visible: onScreen.has(id),
         busy: this.#isBusy(live, now),
         keepAwake: findTab(this.#store.data, id)?.tab.keepAwake === true,
         lastActive: live.lastActive,
@@ -318,9 +341,19 @@ export class TabManager {
 
   // --------------------------------------------------------------- private
 
-  #activeTabId() {
+  #activeBrand() {
     const data = this.#store.data;
-    return findBrand(data, data.activeBrandId)?.activeTabId ?? null;
+    return findBrand(data, data.activeBrandId);
+  }
+
+  /** The tab in the focused pane of the brand on screen. */
+  #activeTabId() {
+    return this.#activeBrand()?.activeTabId ?? null;
+  }
+
+  /** The tabs in the panes of the brand on screen. */
+  #onScreen() {
+    return new Set((this.#activeBrand()?.panes ?? []).filter(Boolean));
   }
 
   #isBusy(live, now) {
@@ -334,37 +367,48 @@ export class TabManager {
   }
 
   /**
-   * Make the window show the selected tab of the selected brand: load it if
-   * needed, attach its view, detach whichever view was there before.
+   * Make the window show the panes of the selected brand: load each pane's
+   * tab if needed, attach its view, detach the views that no longer belong.
    */
   #present({ focus = false } = {}) {
     if (this.#disposed) return;
-    const tabId = this.#activeTabId();
-    const found = tabId ? findTab(this.#store.data, tabId) : null;
-    let show = null;
+    const brand = this.#activeBrand();
+    const now = Date.now();
+    const wanted = new Set();
 
-    if (found?.tab.url && !this.#parked.has(tabId)) {
-      const live = this.#live.get(tabId) ?? this.#wake(found.brand, found.tab);
-      live.lastActive = Date.now();
+    for (const tabId of brand?.panes ?? []) {
+      const tab = tabId && brand.tabs.find((t) => t.id === tabId);
+      if (!tab?.url || this.#parked.has(tabId)) continue;
+      const live = this.#live.get(tabId) ?? this.#wake(brand, tab);
+      live.lastActive = now;
       live.hold = false;
-      if (!this.#covered && !live.error) show = tabId;
+      if (!this.#covered && !live.error) wanted.add(tabId);
     }
 
-    if (this.#shown !== show) {
-      const previous = this.#live.get(this.#shown);
-      if (previous) {
-        previous.lastActive = Date.now();
-        this.#window.contentView.removeChildView(previous.view);
-      }
-      this.#shown = show;
-      if (show) this.#window.contentView.addChildView(this.#live.get(show).view);
+    for (const tabId of [...this.#attached]) {
+      if (wanted.has(tabId)) continue;
+      const live = this.#live.get(tabId);
+      live.lastActive = now;
+      this.#window.contentView.removeChildView(live.view);
+      this.#attached.delete(tabId);
     }
-    if (show) {
-      const { view, contents } = this.#live.get(show);
-      view.setBounds(this.#bounds);
-      if (focus) contents.focus();
+    for (const tabId of wanted) {
+      if (this.#attached.has(tabId)) continue;
+      this.#window.contentView.addChildView(this.#live.get(tabId).view);
+      this.#attached.add(tabId);
     }
+    this.#place();
+    if (focus && wanted.has(brand.activeTabId)) this.#live.get(brand.activeTabId).contents.focus();
     this.#changed();
+  }
+
+  /** Put each attached view on the rectangle of the pane its tab is in. */
+  #place() {
+    const panes = this.#activeBrand()?.panes ?? [];
+    for (const tabId of this.#attached) {
+      const rect = this.#bounds[panes.indexOf(tabId)];
+      if (rect) this.#live.get(tabId).view.setBounds(rect);
+    }
   }
 
   #wake(brand, tab) {
@@ -473,6 +517,16 @@ export class TabManager {
       }
     });
 
+    // Clicking inside a page makes its pane the focused one.
+    contents.on('focus', () => {
+      const brand = this.#activeBrand();
+      const pane = brand?.panes.indexOf(tabId) ?? -1;
+      if (pane === -1 || brand.focus === pane) return;
+      focusPane(brand, pane);
+      this.#store.touch();
+      this.#changed();
+    });
+
     contents.once('destroyed', () => this.#gone(tabId, live));
   }
 
@@ -494,8 +548,7 @@ export class TabManager {
     this.#uploads.forget(live.contentsId);
     this.#tabByContents.delete(live.contentsId);
     this.#live.delete(tabId);
-    if (this.#shown === tabId) {
-      this.#shown = null;
+    if (this.#attached.delete(tabId)) {
       try {
         this.#window.contentView.removeChildView(live.view);
       } catch { /* the window is closing too */ }
