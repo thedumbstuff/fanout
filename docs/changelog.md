@@ -10,6 +10,8 @@ puts it in the update feed, and fanout shows it after updating.
   version is installed when you press "Restart to update" or the next time you close
   fanout. Settings has a switch for it and a "Check for updates" button.
 - After an update, the status bar offers what is new.
+- Adding a brand asks how its starter tabs open: side by side in one window (up to four)
+  or one at a time as separate tabs.
 - Smaller installer.
 
 ## 0.1.0 - 2026-11-12

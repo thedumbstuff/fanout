@@ -6,7 +6,7 @@ import { clipboard, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import { listDir, readText } from './files.js';
 import { popupBrandMenu, popupFileMenu, popupTabMenu } from './menus.js';
-import { cleanSettings, createBrand, findBrand, updateBrand } from './model.js';
+import { cleanSettings, createBrand, findBrand, MAX_PANES, setPaneCount, updateBrand } from './model.js';
 import { resolveInside } from './pathjail.js';
 import { toUrl } from './urls.js';
 
@@ -73,6 +73,8 @@ export function registerIpc(ctx) {
   handle('brand:create', (input = {}) => {
     const urls = (Array.isArray(input.urls) ? input.urls : []).slice(0, 12).map(toUrl).filter(Boolean);
     const brand = createBrand(store.data, { ...input, urls });
+    // "Side by side": the starter tabs open in panes, four at most.
+    if (input.together === true && brand.tabs.length > 1) setPaneCount(brand, Math.min(MAX_PANES, brand.tabs.length));
     store.touch();
     tabs.refresh({ focus: true });
     return brand.id;

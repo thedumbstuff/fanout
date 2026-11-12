@@ -67,8 +67,15 @@ async function run(ctx) {
   const bridge = (method, ...args) =>
     ui.executeJavaScript(`window.fanout.${method}(...${JSON.stringify(args)})`);
   const dom = (expression) => ui.executeJavaScript(expression);
-  const shot = async (name, contents = ui) =>
-    fs.writeFileSync(path.join(SHOTS, `${name}.png`), (await contents.capturePage()).toPNG());
+  // A screenshot is for a person to look at; a window that cannot be captured
+  // right now (minimised, screen locked) must not fail the checks.
+  const shot = async (name, contents = ui) => {
+    try {
+      fs.writeFileSync(path.join(SHOTS, `${name}.png`), (await contents.capturePage()).toPNG());
+    } catch (error) {
+      console.log(`     no screenshot ${name}: ${error.message}`);
+    }
+  };
   const brand = () => ctx.store.data.brands[0];
   const live = (tab) => ctx.tabs.runtime(tab.id).live;
   const idle = (tab) => live(tab) && !ctx.tabs.runtime(tab.id).loading;
@@ -223,6 +230,19 @@ async function run(ctx) {
   check('the layout is saved with the brand', saved.brands[0].panes.length === 2 && saved.brands[0].splitX === 0.7 &&
     saved.brands[0].tabs.every((tab) => tab.url.startsWith(site)));
   check('nothing was written outside the profile and folder', !fs.existsSync(path.join(FOLDER, 'fanout.json')));
+  // ---- a brand added "side by side" opens its starter tabs in panes
+  await bridge('createBrand', { name: 'Together', color: '#2f6fed', folder: '', together: true, urls: [`${site}/a`, `${site}/b`, `${site}/a`, `${site}/b`, `${site}/a`] });
+  const together = ctx.store.data.brands[1];
+  await until(() => together.panes.every((id) => idle({ id })), 'four panes loaded');
+  check('side by side: four of five starter tabs on screen, the fifth waits', together.panes.length === 4 &&
+    together.panes.every((id) => live({ id })) && !live(together.tabs[4]));
+  await shot('07-added-side-by-side');
+  await ctx.deleteBrand(together.id, { ask: false });
+  await bridge('createBrand', { name: 'Apart', color: '#18a36b', folder: '', together: false, urls: [`${site}/a`, `${site}/b`] });
+  check('separate tabs: one page on screen', ctx.store.data.brands[1].panes.length === 1);
+  await ctx.deleteBrand(ctx.store.data.brands[1].id, { ask: false });
+  await bridge('selectBrand', brand().id);
+
   await ctx.deleteBrand(brand().id, { ask: false });
   await wait(500);
   check('deleting a brand closes its pages', ctx.store.data.brands.length === 0 && ctx.tabs.metrics().live === 0);

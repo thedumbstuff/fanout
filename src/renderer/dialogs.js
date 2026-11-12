@@ -62,6 +62,24 @@ export function openBrandDialog({ api, colors, presets, brand, used = 0 }) {
         },
       }, icon('check'))));
 
+    // How the starter tabs open: all on screen in panes, or one page with the rest as tabs.
+    let together = true;
+    const arrangement = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Show them' },
+      [[true, 'Side by side in one window'], [false, 'One at a time, as separate tabs']].map(([value, label]) =>
+        h('button', {
+          type: 'button',
+          class: `chip${value === together ? ' is-on' : ''}`,
+          role: 'radio',
+          'aria-checked': String(value === together),
+          onclick: (e) => {
+            together = value;
+            for (const el of arrangement.children) {
+              el.classList.toggle('is-on', el === e.currentTarget);
+              el.setAttribute('aria-checked', String(el === e.currentTarget));
+            }
+          },
+        }, label)));
+
     const starters = brand ? null : h('div', { class: 'field' },
       h('span', { class: 'field-name' }, 'Open tabs for'),
       h('div', { class: 'chips' }, presets.map((preset) =>
@@ -76,14 +94,18 @@ export function openBrandDialog({ api, colors, presets, brand, used = 0 }) {
             e.currentTarget.setAttribute('aria-pressed', String(on));
           },
         }, preset.name))),
-      h('p', { class: 'quiet' }, 'Any other site can be added later from the address bar.'));
+      h('p', { class: 'quiet' }, 'Any other site can be added later from the address bar.'),
+      h('span', { class: 'field-name' }, 'Show them'),
+      arrangement,
+      h('p', { class: 'quiet' }, 'Side by side shows up to four pages at once; any more wait in the tab strip. ' +
+        'You can switch at any time with the layout buttons next to the address bar.'));
 
     return h('form', {
       method: 'dialog',
       onsubmit: (e) => {
         e.preventDefault();
         if (!name.value.trim()) return name.focus();
-        finish({ name: name.value, color, folder, ...(brand ? {} : { urls: [...chosen] }) });
+        finish({ name: name.value, color, folder, ...(brand ? {} : { urls: [...chosen], together }) });
       },
     },
     h('h2', {}, brand ? 'Edit brand' : 'Add a brand'),
