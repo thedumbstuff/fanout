@@ -56,6 +56,14 @@ tab is in at most one pane. `brand.focus` is the pane the address bar and tab st
 on. `splitX` and `splitY` are the divider positions. All of it is saved, so a brand
 comes back with the same layout and the same pages.
 
+A tab goes by its own name, else its page title, else its site, else "New tab"
+(`tabLabel` in `model.js`; the state message carries it as `label`, so the tab strip
+and the pane header cannot disagree). A name is saved only when the person changed
+the text in the rename box to something the tab would not show anyway (`nameFor`);
+otherwise the tab keeps following its page. A blank tab (no address, no name) lives
+only in a pane: when another tab takes its pane or its pane is removed, the tab is
+removed too. It stays while its brand is merely not on screen.
+
 Only tabs in the panes of the brand on screen are attached to the window. The interface
 measures each pane's body and reports the rectangles (`layout:bounds`); `tabs.js` places
 the views on them. Pages draw above the interface, so when a dialog opens the interface
@@ -91,8 +99,9 @@ it is dropped is between the person and the page.
 
 ## Tests
 
-- `npm test`: 20 unit tests of the pure modules and file access.
-- `npm run smoke`: 42 checks of the real app (lazy loading, sleeping, unsaved-work
+- `npm test`: 23 unit tests of the pure modules and file access.
+- `npm run smoke`: 47 checks of the real app (lazy loading, sleeping, unsaved-work
   refusal, file jail, preview copy, posted marks, new-tab links, load errors, split
-  view, saving, deleting). Opens a window; screenshots in `.smoke/shots`.
+  view, tab names, blank tabs, saving, deleting). Opens a window; screenshots in
+  `.smoke/shots`.
 - `npm run measure`: memory on real sites.

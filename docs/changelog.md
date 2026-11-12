@@ -14,6 +14,11 @@ puts it in the update feed, and fanout shows it after updating.
   or one at a time as separate tabs.
 - The tabs that are on screen together are shown as one group in the tab strip, outlined
   in the brand's colour and in the order of their panes.
+- Tab names follow the page again. Closing a tab's rename box without changing the text,
+  or with Escape, no longer fixes the name; emptying the box goes back to the page title.
+  A tab that was stuck on the name "New tab" shows its page title again. A new tab that
+  never got an address is removed when another tab takes its place, instead of staying
+  in the tab strip.
 - Smaller installer.
 
 ## 0.1.0 - 2026-11-12
