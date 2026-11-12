@@ -22,6 +22,7 @@ import { isWebUrl, toUrl } from './urls.js';
 const SWEEP_MS = 30_000;
 const FORCE_CLOSE_MS = 4000; // a page that hangs on close is closed anyway
 const ABORTED = -3; // Chromium's code for a load the user or page cancelled
+const WAKE_FOCUS_MS = 3000; // a woken page grabs the focus once by itself within this time
 
 export class TabManager {
   #window;
@@ -30,7 +31,7 @@ export class TabManager {
   #uploads;
   #changed;
 
-  /** tabId -> { view, contents, contentsId, lastActive, intent, hold, loading, error, forceTimer } */
+  /** tabId -> { view, contents, contentsId, lastActive, wokeAt, focused, intent, hold, loading, error, forceTimer } */
   #live = new Map();
   #tabByContents = new Map(); // webContents id -> tabId
   #parked = new Set(); // tabs asleep on purpose: selected, but not to be loaded
@@ -468,6 +469,8 @@ export class TabManager {
       contents,
       contentsId: contents.id,
       lastActive: Date.now(),
+      wokeAt: Date.now(),
+      focused: false, // has had the focus at least once
       intent: null, // 'auto' | 'sleep' | 'close' | 'drop' while being closed
       hold: false, // refused to sleep because of unsaved work
       loading: false,
@@ -562,6 +565,17 @@ export class TabManager {
     // group on screen counts: a group page behind a solo tab that focuses
     // itself must not bring the group back.
     contents.on('focus', () => {
+      // A page that has just been loaded grabs the focus once by itself as it
+      // gets ready (Chromium does this; pages woken together grab it in turn,
+      // so a group coming back ended up focused on its last pane). That is no
+      // click: the focus goes back to the tab the address bar is on.
+      const first = !live.focused;
+      live.focused = true;
+      if (first && Date.now() - live.wokeAt < WAKE_FOCUS_MS) {
+        // Just after this event: a focus change made inside it did not take (Windows 11, Electron 45).
+        setTimeout(() => this.#refocus(tabId), 0);
+        return;
+      }
       const brand = this.#activeBrand();
       const pane = brand && !brand.solo ? brand.panes.indexOf(tabId) : -1;
       if (pane === -1 || brand.focus === pane) return;
@@ -571,6 +585,13 @@ export class TabManager {
     });
 
     contents.once('destroyed', () => this.#gone(tabId, live));
+  }
+
+  /** Give the keyboard back to the tab the address bar is on, if another page (`from`) took it. */
+  #refocus(from) {
+    const active = this.#activeTabId();
+    if (this.#disposed || !active || active === from || !this.#attached.has(active)) return;
+    this.#live.get(active).contents.focus();
   }
 
   /** Ask a live page to close, for one of the reasons in `intent`. */
