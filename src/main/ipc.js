@@ -62,9 +62,7 @@ export function registerIpc(ctx) {
     if (rect && typeof rect === 'object') tabs.setBounds(rect);
   });
   on('layout:covered', (covered) => tabs.setCovered(covered === true));
-  handle('clipboard:write', (text) => {
-    clipboard.writeText(String(text ?? '').slice(0, MAX_COPY));
-  });
+  handle('clipboard:write', (text) => clipboard.writeText(String(text ?? '').slice(0, MAX_COPY)));
 
   // ----------------------------------------------------------------- brands
   handle('brand:create', (input = {}) => {

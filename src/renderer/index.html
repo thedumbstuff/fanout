@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src https: http: data:">
+  <title>fanout</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav id="rail" aria-label="Brands">
+    <div id="brands" role="tablist" aria-orientation="vertical"></div>
+    <button id="add-brand" class="rail-button" title="Add a brand (Ctrl+Shift+N)" aria-label="Add a brand"></button>
+    <span class="rail-space"></span>
+    <button id="open-settings" class="rail-button" title="Settings" aria-label="Settings"></button>
+  </nav>
+
+  <main id="main">
+    <div id="tabstrip">
+      <div id="tabs" role="tablist"></div>
+      <button id="new-tab" class="tool" title="New tab (Ctrl+T)" aria-label="New tab"></button>
+    </div>
+    <div id="toolbar">
+      <button id="go-back" class="tool" title="Back (Alt+Left)" aria-label="Back"></button>
+      <button id="go-forward" class="tool" title="Forward (Alt+Right)" aria-label="Forward"></button>
+      <button id="reload" class="tool" title="Reload (Ctrl+R)" aria-label="Reload"></button>
+      <button id="go-home" class="tool" title="This tab's home page (Alt+Home)" aria-label="Home page"></button>
+      <input id="address" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Type an address, or search" aria-label="Address">
+      <button id="toggle-panel" class="tool" title="Show or hide files (Ctrl+B)" aria-label="Show or hide files"></button>
+    </div>
+    <div id="page"></div>
+  </main>
+
+  <div id="splitter" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+
+  <aside id="panel" aria-label="Files">
+    <header id="panel-head"></header>
+    <div id="tree" tabindex="0"></div>
+    <div id="preview-splitter" role="separator" aria-orientation="horizontal" hidden></div>
+    <section id="preview" hidden></section>
+  </aside>
+
+  <footer id="status">
+    <span id="note" role="status"></span>
+    <span class="status-space"></span>
+    <span id="tab-count"></span>
+    <span id="memory" title="Memory used by fanout and every loaded tab"></span>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

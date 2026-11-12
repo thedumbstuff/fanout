@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "fanout",
   "productName": "fanout",
   "version": "0.1.0",
@@ -13,6 +13,7 @@
     "test": "node --test \"test/*.test.js\"",
     "smoke": "electron tools/smoke.mjs",
     "icon": "electron tools/make-icon.mjs",
+    "measure": "electron tools/measure-memory.mjs",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir"
   },

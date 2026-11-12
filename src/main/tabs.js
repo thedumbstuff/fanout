@@ -420,8 +420,10 @@ export class TabManager {
     contents.on('did-stop-loading', () => { live.loading = false; this.#changed(); });
     contents.on('audio-state-changed', () => this.#changed());
 
-    contents.on('did-finish-load', () => {
-      if (!live.error) return;
+    // A failed load is followed by 'did-finish-load' (for Chromium's own blank
+    // error page), so that event says nothing. Only a new attempt clears it.
+    contents.on('did-start-navigation', (details) => {
+      if (!live.error || !details.isMainFrame || details.isSameDocument) return;
       live.error = null;
       this.#present();
     });
