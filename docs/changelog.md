@@ -38,6 +38,12 @@ puts it in the update feed, and fanout shows it after updating.
   written. Selecting formatted text copies it without the Markdown signs, ready for a
   caption box; line breaks and hashtags stay as written. Pictures in a file are not
   loaded, and a web link opens as a new tab of the brand.
+- Videos, pictures and sounds open under the file list when clicked: their size and shape
+  (for example "1080 × 1920, vertical 9:16"), length and file size, with play, seek and
+  volume. "Larger view" shows them over the pages; Esc goes back, and the arrow keys
+  move to the next or previous file of the folder. Nothing plays until you press play. A
+  file the built-in player cannot show says so and offers to open it in your usual app.
+  Double-click still opens a file in your usual app.
 - Smaller installer.
 
 ## 0.1.0 - 2026-11-12

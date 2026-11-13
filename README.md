@@ -18,6 +18,11 @@ fanout keeps each brand in its own compartment:
 - **Caption files open in place.** Click a `.txt` or `.md` file to read it; select any
   part of the text and it is copied. Markdown is shown formatted (Source shows it as
   written), and what you copy from it is plain text, ready for a caption box.
+- **Videos, pictures and sounds open in place too**, so you can see which clip is which
+  without leaving fanout: size and shape (`1080 × 1920, vertical 9:16`), length and file
+  size, play and seek, and a larger view over the pages (Esc to go back, arrow keys for
+  the next file). Nothing plays until you press play. A format the built-in player does
+  not know says so and offers your usual app.
 - **A posted tracker.** Tick which file has gone where; hide what is posted everywhere.
 - **It updates itself**: new versions download in the background and install on restart.
 - **Tabs you are not using go to sleep** and give their memory back. A tab that is

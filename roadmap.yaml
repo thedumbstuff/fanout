@@ -30,7 +30,7 @@
 
 project: fanout
 tagline: One window for every brand's social accounts - isolated sign-ins, tabs per brand, a file panel to drag uploads from
-updated: 2026-11-12
+updated: 2026-11-13
 
 open_decisions:
   - id: D1
@@ -193,7 +193,7 @@ phases:
         checks:
           - {type: cmd, run: "npm test --silent"}
       - id: P2.6
-        title: End-to-end smoke test of the real app (66 checks, run by hand - it opens a window)
+        title: End-to-end smoke test of the real app (77 checks, run by hand - it opens a window)
         status: done
         effort: 3
         depends_on: [P2.3, P2.4]
@@ -224,6 +224,18 @@ phases:
         depends_on: [P2.7, P2.8]
         why: "Owner report 2026-11-12: a new tab created outside the group went into the group and pushed a random group tab out. Selecting any tab put it in the focused pane. 37 unit tests and 65 smoke checks pass (2026-11-12)."
         checks:
+          - {type: cmd, run: "npm test --silent"}
+
+      - id: P2.11
+        title: Media viewer - click a video, picture or sound to see it under the tree (size and shape, length, file size, own play/seek/volume controls, nothing autoplays), a larger view over the pages (Esc back, arrow keys step through the folder), a plain message and the default app for what cannot be shown
+        status: done
+        effort: 4
+        depends_on: [P2.3, P2.4]
+        why: "Owner asked 2026-11-13: 'We are dealing with media need to have viewer as well.' Files come over fanout-media: (interface session only, the file panel's jail, media kinds only, streamed in byte ranges, handle closed when the player stops). Formats checked on this PC with tools/media-formats.mjs (docs/architecture.md). 44 unit tests; 77 of 77 smoke checks in the last two runs (2026-11-13). The unsaved-typing check (simulated keys) failed in 4 of 6 runs that day, one of them with the media section skipped, so it is not caused by the viewer."
+        checks:
+          - {type: path, path: src/main/media.js}
+          - {type: path, path: src/renderer/viewer.js}
+          - {type: path, path: tools/media-formats.mjs}
           - {type: cmd, run: "npm test --silent"}
 
   - id: P3
@@ -338,9 +350,11 @@ phases:
         effort: 3
         why: Owner said "caption later" (2026-11-12). The tool still never types into a page.
       - id: P6.2
-        title: Thumbnails and a quick look at images and videos in the file panel
+        title: Thumbnails of videos and pictures in the file tree
         status: pending
         effort: 3
+        depends_on: [P2.11]
+        why: "The look at one file at a time is done (P2.11, the media viewer). Thumbnails are a separate decision: a picture per row means decoding many files, which needs its own memory bound (and a cache) first."
       - id: P6.3
         title: Reorder tabs and brands by dragging
         status: pending
@@ -358,11 +372,12 @@ features:
   - {id: F1, title: Brands with their own sign-ins, source: own, area: sessions, status: shipped, task: P1.2, note: "Each brand is a separate cookie jar; the same site can be signed in differently in every brand"}
   - {id: F2, title: Tabs per brand, source: own, area: workspace, status: shipped, task: P1.3, note: "Any address; nothing is specific to a platform"}
   - {id: F3, title: File panel per brand with drag to upload, source: own, area: workspace, status: shipped, task: P2.3, note: "A real file drag, as from Explorer or Finder"}
-  - {id: F4, title: Text preview with select-to-copy, source: own, area: workspace, status: shipped, task: P2.4, note: "For caption files (.txt, .md); Markdown formatted, Source as written (P2.9)"}
+  - {id: F4, title: Text preview with select-to-copy, source: own, area: workspace, status: shipped, task: P2.4, note: "For caption files (.txt, .md); Markdown formatted, Source as written (P2.9); media in the same place (F12)"}
   - {id: F5, title: Posted tracker, source: own, area: status, status: shipped, task: P1.5, note: "A mark per file and tab, set by hand; hide what is posted everywhere"}
   - {id: F6, title: Sleeping tabs, source: own, area: other, status: shipped, task: P3.1, note: "Unused tabs give their memory back; busy or unsaved tabs are left alone"}
   - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
   - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
   - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages; other tabs open on their own and leave the group alone (P2.10)"}
   - {id: F11, title: Updates itself, source: own, area: other, status: building, task: P4.3, note: "App side done and proved locally; waits for the site to host the feed"}
-  - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "See which clip is which"}
+  - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "A picture for every row of the tree; the viewer (F12) already shows one file"}
+  - {id: F12, title: Media viewer, source: own, area: workspace, status: shipped, task: P2.11, note: "Video, pictures and sound under the tree with the facts that matter for posting, and a larger view over the pages"}

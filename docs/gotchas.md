@@ -68,6 +68,66 @@ on its own. `npm run smoke`, or `node node_modules/electron/cli.js tools/smoke.m
 waits and passes the output through. The exit code was 1 with every check passing
 (most likely because the close path ends the process itself): go by the test's own tally.
 
+## The media scheme must exist before the app is ready
+
+`protocol.registerSchemesAsPrivileged` works only before `ready`. `main.js` gets it
+in time by importing `mediaprotocol.js` first. A tool that loads `main.js` with a
+dynamic `import()` (the smoke test, the memory and format tools: they first pick a
+throwaway profile) is too late, because Electron does not wait for that import before
+it becomes ready. Such a tool imports `../src/main/mediaprotocol.js` statically at its
+top; the module throws a clear error if it is loaded after `ready`.
+
+## Chromium's own video controls would break the screen
+
+With `controls`, a video gets Chromium's fullscreen button and fullscreen on
+double-click. In fanout the window would go fullscreen with the video in the
+interface while the pages, native layers, stay drawn over it. The viewer uses its own
+controls (no `controls` attribute: no way into fullscreen) and its larger view hides
+the pages like a dialog.
+
+## Media memory that stays after closing is Chromium's cache
+
+After a video element is gone (paused, source dropped, `load()`, removed), the
+interface's memory does not fall at once: Chromium keeps the bytes the player read
+in a per-process cache and reuses them if the same file is opened again (the new
+player asks only for the part it has not read). It drains by itself over a few
+minutes and does not grow from one video to the next. Judge a leak by what fanout
+holds (`ctx.media.openStreams`, media elements in the page), not by the number a
+second after closing. Measurements in [memory](memory.md).
+
+## Making test media
+
+- WebCodecs (`VideoEncoder`, `AudioEncoder`) does not exist on `about:blank`: it needs
+  a secure page. The fixtures' hidden window loads a small `file://` page instead.
+- MediaRecorder works anywhere but in real time, and its H.264 string matters: level
+  3.0 (`avc1.42E01E`) cannot hold 1080 × 1920; the smoke test records with
+  `avc1.640028` (High 4.0). Its WebM and MP4 files have a length in Electron 45.
+- A 23 MB file that a player can seek in is made with WebCodecs (VP8, faster than real
+  time) and written by `webm()` in `tools/media-fixtures.mjs` with its length and an
+  index before the clusters; noise in half of each frame keeps it large.
+- WebCodecs here cannot encode AAC, so a raw `.aac` file is not tested.
+
+## A covered window pauses a silent video
+
+Windows tells Chromium when another window covers fanout's, and Chromium then treats
+the page as hidden: a video without sound pauses (and does not start). In the app
+that is harmless, since nobody is watching. In the smoke test, with the owner working
+in other windows, "it plays" failed once for that reason only. The media checks run
+with `setBackgroundThrottling(false)` on the interface, which Electron documents as
+also keeping the page "visible", and restore it after.
+
+## A screenshot can be one frame behind
+
+`webContents.capturePage()` returns the last frame drawn. Right after the large view
+opened, it returned the window as it was before. The smoke test's `shot()` calls
+`invalidate()` and waits a moment first.
+
+## `h()` skips false
+
+`h('img', { draggable: false })` does nothing: `h()` leaves out `false`, `null` and
+`undefined` props, so a boolean property cannot be set to false through it. The viewer
+stops a picture being dragged out with a `dragstart` handler on its box instead.
+
 ## Writing files from PowerShell 5.1
 
 `Set-Content -Encoding utf8` adds a byte-order mark, which broke `package.json` for
@@ -107,3 +167,7 @@ another disguise.
 - A real drop onto a real upload page. The drag is started with the same native call
   Explorer uses; the drop needs a person.
 - macOS and Linux. The code avoids platform assumptions but has only run on Windows 11.
+- The media viewer with the owner's own files. The formats were checked with files made
+  on this PC (`tools/media-formats.mjs`); HEVC plays here because this PC's graphics
+  decode it. Ogg, raw AAC, AVIF and HEIC files were not tested; AVI, WMV and MPG are
+  formats the engine says it cannot play.

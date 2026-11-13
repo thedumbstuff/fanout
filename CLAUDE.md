@@ -2,7 +2,8 @@
 
 Electron app (Windows, macOS, Linux): one window for every brand's social accounts.
 Brands have isolated sign-ins, tabs, up to four pages side by side, a file panel to drag
-uploads from, a text preview with select-to-copy, and a posted tracker. Open source
+uploads from, a text preview with select-to-copy, a media viewer (video, pictures,
+sound; served over `fanout-media:` to the interface only), and a posted tracker. Open source
 (MIT) under thedumbstuff. Started 2026-11-12.
 
 Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.md`.
@@ -29,9 +30,10 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 ## Working here
 
 ```
-npm test                       # 37 unit tests
-npm run smoke                  # 66 checks on the real app; opens a window
+npm test                       # 44 unit tests
+npm run smoke                  # 77 checks on the real app; opens a window (muted)
 npm run measure                # memory on six real sites; takes about 2 minutes
+node node_modules/electron/cli.js tools/media-formats.mjs   # which formats the viewer shows here
 node tools/release.mjs build   # installer + update feed in dist/ (notes from docs/changelog.md)
 python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal)
 ```
@@ -40,7 +42,12 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
   `docs/changelog.md` with every change. Commit in small chunks, no trailers.
 - Real profile: `%APPDATA%\fanout`. Tests use `FANOUT_USER_DATA` and `.smoke/`.
 - Tools that drive Electron open real windows on the owner's desktop; a click there
-  during a run changes the result.
+  during a run changes the result. Anything they play is muted.
+- A tool that loads `main.js` with `import()` must first `import '../src/main/mediaprotocol.js'`
+  statically (the scheme has to exist before the app is ready; see gotchas).
+- The smoke check "a tab with unsaved typing refuses to sleep" (simulated keys) is flaky:
+  on 2026-11-13 it failed in 4 of 6 runs, once with the media checks skipped and the
+  window and page both reporting focus, and passed in the other two.
 
 ## Open
 
@@ -51,4 +58,4 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
 - Updates (`docs/updates.md`): the app side works; nothing can be published until
   thedumbstuff-site's downloads service takes fanout and a file over 100 MB (roadmap P4.3).
 - fanout 0.2.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-12).
-- Later: caption clipboard (P6.1), thumbnails, tab reordering.
+- Later: caption clipboard (P6.1), thumbnails in the tree (P6.2), tab reordering.
