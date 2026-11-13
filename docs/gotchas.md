@@ -60,8 +60,9 @@ A window under other windows counts as hidden to Chromium (Windows 11), which st
 drawing it; `capturePage()` then returns the last frame drawn. Once this gave a
 picture of the interface as it had been a minute earlier, under pages as they were
 now. `tools/screenshots.mjs` turns background throttling off for every web contents it
-runs (they keep drawing while covered), and its `--check` changes the interface under
-a cover to prove the picture follows. A tool must never capture the screen itself to
+runs (they keep drawing while covered, see also "A covered window pauses a silent
+video"), asks each for a fresh frame first ("A screenshot can be one frame behind"),
+and its `--check` changes the interface under a cover to prove the picture follows. A tool must never capture the screen itself to
 compare: when the window is not where expected, that is a picture of the owner's own
 screen. The check captures fanout's window only (`getUserMedia` on its media source).
 
