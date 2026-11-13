@@ -66,6 +66,15 @@ fanout keeps each brand in its own compartment:
   read it; select any part of the text and it is copied. Markdown is shown formatted
   (Source shows it as written), and what you copy from it is plain text, ready for a
   caption box.
+- **So do videos, pictures and sounds**, so you can tell which clip is which without
+  leaving fanout. Click one to see it under the files with what the upload forms ask
+  about: `1080 × 1920, vertical 9:16 · 0:42.3 · 38.2 MB`. Plain play, position and
+  volume controls; nothing plays until you press play. A larger view covers the pages
+  (Esc goes back, the arrow keys step through the folder). It shows what its built-in
+  browser shows: MP4, MOV, WebM and MKV videos, MP3, M4A, WAV and FLAC sounds, JPEG,
+  PNG, WebP, GIF, BMP and SVG pictures. iPhone (HEVC) videos play where the computer's
+  graphics can decode them. A file it cannot show says so and offers to open it in your
+  usual app.
 - **A posted tracker.** Tick which file has gone where; hide what is posted everywhere.
 - **It updates itself**, once downloads are on thedumbstuff.page: new versions download
   in the background and install when you restart or close it. (On macOS, until fanout
@@ -88,13 +97,13 @@ juggling around it.
     <td><b>A tab on its own</b> - a tab outside the group fills the page area; the group waits, outlined, one click away.</td>
     <td><b>Add a brand</b> - a name, a colour, the folder it posts from, and the sites it posts to.</td>
   </tr>
-  <!-- The media viewer's picture (assets/screenshots/viewer.png, from tools/screenshots.mjs)
-       goes in the row below, as its own 50% cell beside posted-dark.png, once the viewer is on main. -->
   <tr>
-    <td colspan="2"><img src="assets/screenshots/posted-dark.png" alt="The brand Northwind Travel in the dark theme: Threads open, and the brand's folder with two subfolders open, a mark per file and site, and the files posted everywhere highlighted"></td>
+    <td><img src="assets/screenshots/posted-dark.png" alt="The brand Northwind Travel in the dark theme: Threads open, and the brand's folder with two subfolders open, a mark per file and site, and the files posted everywhere highlighted"></td>
+    <td><img src="assets/screenshots/viewer.png" alt="The media viewer's larger view over the pages: a video of a bowl of soup titled New autumn menu, its size, shape, length and file size above it, play, position and volume below, and the file panel beside it with the video selected"></td>
   </tr>
   <tr>
-    <td colspan="2"><b>Posted tracker</b> - a mark per file and site, set by hand; a file that has gone everywhere is highlighted. Light and dark themes follow the system.</td>
+    <td><b>Posted tracker</b> - a mark per file and site, set by hand; a file that has gone everywhere is highlighted. Light and dark themes follow the system.</td>
+    <td><b>Media viewer</b> - see a clip before you upload it, with the facts the upload forms ask about; the larger view covers the pages.</td>
   </tr>
 </table>
 
@@ -126,6 +135,7 @@ npm test             # unit tests, no Electron needed
 npm run smoke        # the real app against a throwaway profile; opens a window
 npm run measure      # memory with six real sites loaded, then with five asleep
 npm run screenshots  # the pictures in this README, from the real app; opens a window
+node node_modules/electron/cli.js tools/media-formats.mjs   # which formats the viewer shows here
 python watchtower/server.py    # build dashboard on http://127.0.0.1:8768
 ```
 
