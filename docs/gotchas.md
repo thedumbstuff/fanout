@@ -50,6 +50,21 @@ A page is a native layer over the window, so nothing in the interface's HTML can
 appear on top of it. Dialogs hide the pages (`layout:covered`); menus are native
 (`menus.js`); messages go in the status bar.
 
+The same goes for pictures: `capturePage()` of the interface has an empty hole
+where each page is. `tools/screenshots.mjs` captures the interface and every page
+and lays the pages over it at their rectangles.
+
+## A covered window gives capturePage an old picture
+
+A window under other windows counts as hidden to Chromium (Windows 11), which stops
+drawing it; `capturePage()` then returns the last frame drawn. Once this gave a
+picture of the interface as it had been a minute earlier, under pages as they were
+now. `tools/screenshots.mjs` turns background throttling off for every web contents it
+runs (they keep drawing while covered), and its `--check` changes the interface under
+a cover to prove the picture follows. A tool must never capture the screen itself to
+compare: when the window is not where expected, that is a picture of the owner's own
+screen. The check captures fanout's window only (`getUserMedia` on its media source).
+
 ## A page grabs the focus once when it wakes
 
 Every page fanout creates for a tab (when the tab wakes) takes the keyboard focus by

@@ -33,6 +33,7 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 npm test                       # 44 unit tests
 npm run smoke                  # 77 checks on the real app; opens a window (muted)
 npm run measure                # memory on six real sites; takes about 2 minutes
+npm run screenshots            # README pictures from the real app (sample data); opens a window, about 2 minutes
 node node_modules/electron/cli.js tools/media-formats.mjs   # which formats the viewer shows here
 node tools/release.mjs build   # installer + update feed in dist/ (notes from docs/changelog.md)
 python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal)

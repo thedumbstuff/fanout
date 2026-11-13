@@ -98,6 +98,16 @@ phases:
           - {type: path, path: docs/memory.md}
           - {type: path, path: docs/gotchas.md}
           - {type: path, path: docs/changelog.md}
+      - id: P0.4
+        title: README with thedumbstuff's banner and screenshots of the real app; tools/screenshots.mjs (npm run screenshots) makes them from sample brands and folders and public signed-out pages, every page layer composed in
+        status: done
+        effort: 2
+        why: "Owner asked 2026-11-13 for the README to look like ContextWire's, with fanout screenshots. Checked: the composed picture matches the system's own capture of the window (99.4% per 2x2 block) and is the same with the window covered. The media viewer's picture is added when the viewer is on main."
+        checks:
+          - {type: path, path: assets/thedumbstuff.jpg}
+          - {type: path, path: tools/screenshots.mjs}
+          - {type: cmd, run: 'node -e "const fs=require(`fs`);const missing=[...fs.readFileSync(`README.md`,`utf8`).matchAll(/src=.([^\x22]+)./g)].map((m)=>m[1]).filter((f)=>!fs.existsSync(f));console.log(missing.length?`missing: `+missing:`every picture README.md names exists`);process.exit(missing.length?1:0)"'}
+          - {type: cmd, run: "node -e \"process.exit(require('./package.json').scripts.screenshots ? 0 : 1)\""}
 
   - id: P1
     name: Core
