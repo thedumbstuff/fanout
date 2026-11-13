@@ -8,14 +8,18 @@
 //   sleeper.js   which tabs to put to sleep                      pure
 //   pages.js     rules every web page lives under
 //   files.js     the brand folder: listing, text preview, watching
+//   media.js     videos, pictures and sounds for the viewer, in byte ranges
 //   posted.js    which file went to which tab
 //   ipc.js       what the interface may ask for
 //   menus.js     application menu, shortcuts, right-click menus
 
+// First: the media viewer's address must be registered before the app is ready.
+import { serveMedia } from './mediaprotocol.js';
 import { app, BrowserWindow, Menu, dialog, nativeImage, nativeTheme, screen } from 'electron';
 import path from 'node:path';
 import { FolderWatcher } from './files.js';
 import { registerIpc } from './ipc.js';
+import { MediaServer } from './media.js';
 import { buildAppMenu } from './menus.js';
 import { BRAND_COLORS, deleteBrand, findBrand, groupOf, onScreen, sanitize, tabLabel } from './model.js';
 import { hardenPage } from './pages.js';
@@ -35,6 +39,7 @@ import { siteName } from './urls.js';
  * @property {BrandSessions} sessions
  * @property {TabManager} tabs
  * @property {FolderWatcher} watcher
+ * @property {MediaServer} media                       the viewer's files (fanout-media:)
  * @property {Electron.NativeImage} dragIcon
  * @property {() => object} snapshot                  the state the interface draws
  * @property {() => void} changed                     send that state soon
@@ -114,6 +119,8 @@ async function boot() {
   };
   ctx.updates = new Updates({ store, changed: ctx.changed, save: ctx.save });
   ctx.watcher = new FolderWatcher((brandId, rel) => ctx.send('files:changed', brandId, rel));
+  ctx.media = new MediaServer({ folderOf: (brandId) => findBrand(store.data, brandId)?.folder || null });
+  serveMedia(ctx.media);
 
   ctx.snapshot = () => ({
     platform: process.platform,

@@ -3,6 +3,8 @@
 // Opens the public front pages below (signed out, in a throwaway profile),
 // reads memory with every tab loaded, puts all but one to sleep, reads again.
 
+// Registered before the app is ready; main.js is loaded only later.
+import '../src/main/mediaprotocol.js';
 import { app, webContents } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';

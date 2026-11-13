@@ -5,6 +5,9 @@
 // Simulated typing and scripted page calls appear only here, on the test's
 // own local pages. The app itself never does either.
 
+// The media viewer's scheme has to be registered before the app is ready, and
+// main.js is loaded only later (after the throwaway profile is chosen).
+import '../src/main/mediaprotocol.js';
 import { app, clipboard, Menu } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
