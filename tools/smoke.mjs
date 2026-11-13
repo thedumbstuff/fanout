@@ -15,6 +15,8 @@ import path from 'node:path';
 import { tabMenuTemplate } from '../src/main/menus.js';
 import { sanitize, tabLabel, UNNAMED_TAB } from '../src/main/model.js';
 import { JsonStore } from '../src/main/store.js';
+import { mediaUrl } from '../src/renderer/viewer.js';
+import { encodeWebm, picture, record, wav, workshop } from './media-fixtures.mjs';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const WORK = path.join(ROOT, '.smoke');
@@ -104,6 +106,9 @@ async function run(ctx) {
   // right now (minimised, screen locked) must not fail the checks.
   const shot = async (name, contents = ui) => {
     try {
+      // capturePage gives the last frame drawn, which can be one step behind: ask for a fresh one.
+      contents.invalidate();
+      await wait(250);
       fs.writeFileSync(path.join(SHOTS, `${name}.png`), (await contents.capturePage()).toPNG());
     } catch (error) {
       console.log(`     no screenshot ${name}: ${error.message}`);
@@ -254,6 +259,193 @@ async function run(ctx) {
   await bridge('closeTab', fromLink.id);
   await until(() => brand().tabs.length === tabsBefore, 'that tab closed');
   await bridge('selectTab', a.id);
+
+  // ---- media viewer: videos, pictures and sounds, streamed in byte ranges, only to the interface
+  ui.setAudioMuted(true); // the owner is at this PC: nothing this test plays is heard
+  // Chromium pauses a silent video on a page it thinks is hidden, and a window covered by
+  // another counts as hidden. The owner works while this runs, so for these checks the
+  // interface stays "visible" (this also keeps its screenshots current). Restored below.
+  ui.setBackgroundThrottling(false);
+  const interfaceMB = () => {
+    const metric = app.getAppMetrics().find((m) => m.pid === ui.getOSProcessId());
+    return Math.round((metric?.memory.privateBytes ?? metric?.memory.workingSetSize ?? 0) / 1024);
+  };
+  const memoryBefore = interfaceMB();
+  const CLIPS = path.join(FOLDER, 'clips');
+  fs.mkdirSync(CLIPS);
+  const shop = await workshop(WORK);
+  const made = Date.now();
+  fs.writeFileSync(path.join(CLIPS, 'launch reel.mp4'),
+    await record(shop, 'video/mp4;codecs=avc1.640028', { width: 1080, height: 1920, seconds: 2 })); // H.264 High 4.0: phone size
+  fs.writeFileSync(path.join(CLIPS, 'long take.webm'),
+    await encodeWebm(shop, { width: 640, height: 360, fps: 10, seconds: 24, bitrate: 8_000_000 }));
+  fs.writeFileSync(path.join(CLIPS, 'poster.jpg'), await picture(shop, 'image/jpeg', { width: 1080, height: 1350 }));
+  fs.writeFileSync(path.join(CLIPS, 'voice.wav'), wav({ seconds: 3 }));
+  // A picture with a script in it, which must never run (it is shown as an image, never inlined).
+  fs.writeFileSync(path.join(CLIPS, 'badge.svg'), `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600">
+    <rect width="600" height="600" fill="#f7d31c"/><circle cx="300" cy="300" r="200" fill="#fb5f89"/>
+    <script>fetch('${site}/svg-script-ran')</script></svg>`);
+  shop.destroy();
+  const longTake = fs.statSync(path.join(CLIPS, 'long take.webm')).size;
+  console.log(`     test media made in ${Date.now() - made} ms (long take ${(longTake / 1048576).toFixed(1)} MB)`);
+
+  await until(() => dom(`Boolean(document.querySelector('#tree [data-name="clips"]'))`), 'the clips folder in the tree');
+  await dom(`document.querySelector('#tree [data-name="clips"]').click()`);
+  await until(() => dom(`document.querySelectorAll('#tree [data-rel^="clips/"]').length === 5`), 'the clips listed');
+  ctx.media.trace = [];
+  const viewer = () => dom(`(() => {
+    const p = document.getElementById('preview');
+    const v = p.querySelector('video, audio');
+    const img = p.querySelector('img.media-picture');
+    return { ready: p.dataset.ready ?? null, name: p.querySelector('.preview-name')?.textContent ?? null,
+      facts: p.querySelector('.media-facts')?.textContent ?? null, large: p.classList.contains('is-large'),
+      paused: v ? v.paused : null, time: v ? v.currentTime : null, width: v?.videoWidth ?? img?.naturalWidth ?? null,
+      media: document.querySelectorAll('video, audio').length, pictures: p.querySelectorAll('img').length,
+      problem: p.querySelector('.media-problem-title')?.textContent ?? null,
+      open: p.querySelector('[data-act="open"]')?.textContent ?? null, hidden: p.hidden,
+      stray: [...p.childNodes].some((node) => node.nodeType === Node.TEXT_NODE) }; // e.g. a "null" written by mistake
+  })()`);
+  const showFile = async (name) => {
+    await dom(`document.querySelector('#tree [data-name="${name}"]').click()`);
+    await until(async () => { const v = await viewer(); return v.name === name && v.ready !== null; }, `${name} in the viewer`);
+    return viewer();
+  };
+
+  const reel = await showFile('launch reel.mp4');
+  const reelControls = await dom(`(() => { const v = document.querySelector('#preview video');
+    return { controls: v.controls, preload: v.preload, pip: v.disablePictureInPicture }; })()`);
+  check('a video opens in the viewer with its size, shape, length and file size; nothing plays by itself',
+    reel.ready === '1' && /^1080 × 1920, vertical 9:16 · 0:0[12]\.\d · [\d.]+ (KB|MB)$/.test(reel.facts) && reel.paused &&
+    reel.time === 0 && reel.media === 1 && reelControls.preload === 'metadata' && !reelControls.controls && reelControls.pip,
+    `${reel.facts}; ${JSON.stringify(reelControls)}`);
+  await dom(`document.querySelector('#preview [data-act="play"]').click()`);
+  const played = await until(async () => (await viewer()).time > 0.5, 'the video playing', 6000);
+  const playing = await dom(`({ label: document.querySelector('#preview [data-act="play"]').ariaLabel,
+    clock: document.querySelector('.media-time').textContent, visibility: document.visibilityState })`);
+  await shot('11-video-in-panel');
+  await dom(`document.querySelector('#preview [data-act="play"]').click()`);
+  await wait(200);
+  check('it plays (the test window is muted) and pauses with its own button',
+    played && playing.label === 'Pause' && /^0:0\d \/ 0:0[12]$/.test(playing.clock) && (await viewer()).paused, JSON.stringify(playing));
+
+  // A larger file: seeking far into it must ask for that part of the file, not read it all.
+  ctx.media.trace = [];
+  const long = await showFile('long take.webm');
+  const sought = await dom(`(() => {
+    const v = document.querySelector('#preview video');
+    const slider = document.querySelector('#preview .media-seek');
+    return new Promise((resolve) => {
+      v.addEventListener('seeked', () => setTimeout(() => resolve({ t: v.currentTime, d: v.duration, state: v.readyState }), 300), { once: true });
+      slider.value = String(v.duration * 0.9);
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  })()`);
+  await wait(300);
+  const asked = ctx.media.trace.filter((entry) => entry.rel === 'clips/long take.webm');
+  const read = asked.reduce((sum, entry) => sum + entry.bytes, 0);
+  const far = asked.find((entry) => entry.status === 206 && entry.start > longTake * 0.8);
+  await shot('12-seeked');
+  check('seeking to 90% of a 23 MB video asks for that part of the file in byte ranges; most of it is never read',
+    long.facts === `640 × 360, horizontal 16:9 · 0:24.0 · ${(longTake / 1048576).toFixed(1)} MB` &&
+    Math.abs(sought.t - sought.d * 0.9) < 1.5 && sought.state >= 2 && Boolean(far) && read < longTake * 0.6 &&
+    asked.every((entry) => entry.origin === 'file://'),
+    `${long.facts}; at ${sought.t.toFixed(1)} s; ${asked.length} requests, first far one "${far?.range}"; ` +
+    `${(read / 1048576).toFixed(1)} of ${(longTake / 1048576).toFixed(1)} MB read`);
+
+  // The large view: over the tab strip, toolbar and pages, which are hidden; arrows step; Esc comes back.
+  const pagesBefore = attached().length;
+  await dom(`document.querySelector('#preview [data-act="large"]').click()`);
+  await until(() => attached().length === 0, 'the pages hidden');
+  await wait(300);
+  const over = await dom(`(() => {
+    const view = document.getElementById('preview').getBoundingClientRect();
+    const page = document.getElementById('page').getBoundingClientRect();
+    const strip = document.getElementById('tabstrip').getBoundingClientRect();
+    return { covers: view.left <= page.left + 1 && view.right >= page.right - 1 && view.top <= strip.top && view.bottom >= page.bottom - 1,
+      focused: document.activeElement?.classList.contains('media-stage') ?? false, back: document.querySelector('#preview [data-act="small"]')?.textContent };
+  })()`);
+  await shot('13-large-video');
+  await dom(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`);
+  await until(async () => (await viewer()).name === 'poster.jpg' && (await viewer()).ready === '1', 'the next file, large');
+  const poster = await viewer();
+  const selectedRow = await dom(`document.querySelector('#tree .row.is-selected')?.dataset.name`);
+  await shot('14-large-picture');
+  const stillHidden = attached().length === 0;
+  await dom(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  await until(() => attached().length === pagesBefore, 'the pages back');
+  const after = await viewer();
+  check('the larger view covers the page area and hides the pages; the arrow key shows the next file; Esc brings the pages back',
+    pagesBefore >= 1 && over.covers && over.focused && over.back === 'Back to the pages' && poster.large && stillHidden &&
+    selectedRow === 'poster.jpg' && !after.large && attached().length === pagesBefore && !ctx.tabs.runtime(a.id).error,
+    `${JSON.stringify(over)}; pages ${pagesBefore} -> 0 -> ${attached().length}`);
+  check('a picture shows its size, shape and file size, and nothing stray under it',
+    /^1080 × 1350, vertical 4:5 · \d+ KB$/.test(poster.facts) && poster.pictures === 1 && poster.media === 0 && !poster.stray,
+    poster.facts);
+
+  const badge = await showFile('badge.svg');
+  await wait(500);
+  check('an SVG is shown as a picture; the script inside it never runs',
+    badge.ready === '1' && badge.width === 600 && !requested.includes('/svg-script-ran'), `${badge.facts}`);
+  const voice = await showFile('voice.wav');
+  check('a sound file opens with its length and play controls, no picture',
+    voice.ready === '1' && /^0:03\.0 · 258 KB$/.test(voice.facts) && voice.media === 1 && voice.pictures === 0 &&
+    await dom(`Boolean(document.querySelector('#preview [data-act="play"]')) && !document.querySelector('#preview video')`), voice.facts);
+
+  // A file the player cannot read (the folder's "launch clip.mp4" is 2 KB of zeros).
+  const broken = await showFile('launch clip.mp4');
+  await shot('15-cannot-play');
+  check('a video that cannot be played says so in words and offers the default app; no empty box, no element left',
+    broken.ready === 'failed' && broken.problem === 'This video cannot be played here.' &&
+    broken.open === 'Open in the default app' && broken.media === 0 && !broken.stray && ctx.media.openStreams === 0,
+    JSON.stringify(broken));
+
+  // Pages in tabs cannot reach the address: their sessions have no such scheme.
+  ctx.media.trace = [];
+  const mediaAddress = mediaUrl(brand().id, 'clips/launch reel.mp4');
+  const fromPage = await ctx.tabs.activeContents().executeJavaScript(`(async () => {
+    const tryElement = (tag) => new Promise((resolve) => {
+      const el = document.createElement(tag);
+      el.onerror = () => resolve('refused');
+      el.onload = el.onloadedmetadata = () => resolve('LOADED');
+      setTimeout(() => resolve('no answer'), 4000);
+      el.src = ${JSON.stringify(mediaAddress)};
+      document.body.append(el);
+    });
+    let fetched;
+    try { await fetch(${JSON.stringify(mediaAddress)}); fetched = 'LOADED'; } catch { fetched = 'refused'; }
+    return { video: await tryElement('video'), img: await tryElement('img'), fetched };
+  })()`);
+  check('a page in a tab cannot load a media address; nothing it tries reaches the media server',
+    fromPage.video === 'refused' && fromPage.img === 'refused' && fromPage.fetched === 'refused' && ctx.media.trace.length === 0,
+    `${JSON.stringify(fromPage)}; ${ctx.media.trace.length} requests reached the server`);
+
+  // Closing lets go of everything: no element, no open file, memory back down.
+  await showFile('long take.webm');
+  await dom(`document.querySelector('#preview [data-act="play"]').click()`);
+  await until(async () => (await viewer()).time > 1, 'the long take playing', 6000);
+  const memoryPlaying = interfaceMB();
+  const streamsPlaying = ctx.media.openStreams;
+  await dom(`document.querySelector('#preview [data-act="close"]').click()`);
+  const closed = await until(async () => ctx.media.openStreams === 0 && (await viewer()).hidden, 'everything let go', 5000);
+  const left = await viewer();
+  await wait(2000);
+  const memoryAfter = interfaceMB();
+  check('closing the viewer leaves no media element and no open file',
+    closed && left.media === 0 && left.pictures === 0 && ctx.media.openStreams === 0,
+    `streams ${streamsPlaying} while playing, ${ctx.media.openStreams} after; interface memory ${memoryBefore} MB before, ` +
+    `${memoryPlaying} MB playing, ${memoryAfter} MB 2 s after closing`);
+
+  // The file disappears while it is shown: the viewer closes.
+  fs.copyFileSync(path.join(CLIPS, 'launch reel.mp4'), path.join(CLIPS, 'gone soon.mp4'));
+  await until(() => dom(`Boolean(document.querySelector('#tree [data-name="gone soon.mp4"]'))`), 'the copy listed');
+  await showFile('gone soon.mp4');
+  fs.rmSync(path.join(CLIPS, 'gone soon.mp4'));
+  const vanished = await until(async () => (await viewer()).hidden, 'the viewer closing', 5000);
+  check('a file deleted while it is shown closes the viewer and its file',
+    vanished && (await viewer()).media === 0 && ctx.media.openStreams === 0);
+  await dom(`document.querySelector('#tree [data-name="clips"]').click()`); // close the folder again
+  ui.setBackgroundThrottling(true);
+  await wait(300);
 
   // ---- memory: limit of one loaded tab
   await bridge('selectTab', b.id);
