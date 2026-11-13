@@ -1,5 +1,7 @@
 // The file panel: the active brand's folder as a tree, the posted marks next
-// to each file, and dragging files out onto a page.
+// to each file, and dragging files out onto a page. Clicking a file shows it
+// under the tree: text in the preview, videos, pictures and sounds in the
+// media viewer.
 //
 // Memory: a directory is read only when it is opened, at most ROWS_PER_FOLDER
 // of its entries are put on screen at a time, and only open directories are
@@ -7,10 +9,12 @@
 
 import { destinationLabel, formatSize, h, icon } from './dom.js';
 import { Preview } from './preview.js';
+import { MEDIA_KINDS } from './viewer.js';
 
 const ROWS_PER_FOLDER = 300;
 const MAX_MARKS_SHOWN = 6;
 const $ = (id) => document.getElementById(id);
+const parentOf = (rel) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
 
 const PROBLEMS = {
   missing: 'This folder is not there any more.',
@@ -43,7 +47,7 @@ export class FilePanel {
     this.#api = api;
     this.#note = note;
     this.#activeTab = activeTab;
-    this.#preview = new Preview({ api, note });
+    this.#preview = new Preview({ api, note, nearby: (file, by) => this.#nearby(file, by) });
 
     const tree = $('tree');
     tree.addEventListener('click', (e) => this.#onClick(e));
@@ -51,10 +55,11 @@ export class FilePanel {
     tree.addEventListener('contextmenu', (e) => this.#onMenu(e));
     tree.addEventListener('dragstart', (e) => this.#onDragStart(e));
 
-    api.on('files:changed', (brandId, rel) => {
+    api.on('files:changed', async (brandId, rel) => {
       if (brandId !== this.#brand?.id || !this.#open.has(rel)) return;
-      this.#load(rel);
-      this.#preview.refreshIfIn(rel);
+      await this.#load(rel);
+      // After the new listing: the preview can tell whether its file is still there.
+      if (brandId === this.#brand?.id) this.#preview.refreshIfIn(rel, this.#dirs.get(rel)?.entries ?? []);
     });
     api.on('posted:changed', (brandId, rel, marks) => {
       if (brandId !== this.#brand?.id) return;
@@ -75,6 +80,7 @@ export class FilePanel {
     this.#brand = brand;
     this.#destinations = destinations;
     this.#hidePosted = state.settings.hidePosted;
+    this.#preview.panelShown(state.settings.panelOpen);
 
     const redraw = signature !== this.#signature;
     this.#signature = signature;
@@ -295,9 +301,36 @@ export class FilePanel {
     } else {
       this.#selected = new Set([rel]);
       this.#anchor = rel;
-      if (row.dataset.kind === 'text') this.#preview.show(this.#brand.id, rel, row.dataset.name);
+      const { kind } = row.dataset;
+      const entry = this.#entryOf(rel);
+      if (kind === 'text') this.#preview.show(this.#brand.id, rel, row.dataset.name);
+      else if (MEDIA_KINDS.has(kind) && entry) this.#preview.showMedia(this.#brand.id, entry);
     }
     this.#paintSelection();
+  }
+
+  /** A file's entry in the loaded listing of its folder. */
+  #entryOf(rel) {
+    return this.#dirs.get(parentOf(rel))?.entries.find((entry) => entry.rel === rel) ?? null;
+  }
+
+  /**
+   * For the viewer's arrow keys: the media file `by` rows away from `file` in
+   * the same folder, in the order the tree shows (files hidden as posted are
+   * skipped). It becomes the selected row. Null at either end.
+   */
+  #nearby(file, by) {
+    if (file.brandId !== this.#brand?.id) return null;
+    const folder = parentOf(file.rel);
+    const media = this.#order.filter((rel) => parentOf(rel) === folder && MEDIA_KINDS.has(this.#entryOf(rel)?.kind));
+    const at = media.indexOf(file.rel);
+    const rel = at === -1 ? null : media[at + by];
+    if (!rel) return null;
+    this.#selected = new Set([rel]);
+    this.#anchor = rel;
+    this.#paintSelection();
+    $('tree').querySelector(`.row[data-rel="${CSS.escape(rel)}"]`)?.scrollIntoView({ block: 'nearest' });
+    return { brandId: file.brandId, ...this.#entryOf(rel) };
   }
 
   /** Selection changes classes in place: rebuilding rows would cancel a drag that is starting. */

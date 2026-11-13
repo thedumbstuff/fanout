@@ -48,6 +48,10 @@ const ICONS = {
   image: 'M2.5 3.5h11v9h-11zM2.8 10.6l3-3 2.4 2.4 1.8-1.8 3.2 3.2M10.4 6.2h.01',
   audio: 'M6.4 11.6V4l6-1.2v7.4M6.4 11.6a1.7 1.7 0 1 1-3.4 0 1.7 1.7 0 0 1 3.4 0zM12.4 10.2a1.7 1.7 0 1 1-3.4 0 1.7 1.7 0 0 1 3.4 0z',
   other: 'M4 2.5h5.5L12.5 5.5v8H4zM9.3 2.7v3h3',
+  play: 'M5 3.4v9.2L12.4 8z',
+  pause: 'M5.6 3.6v8.8M10.4 3.6v8.8',
+  muted: 'M2.8 6.4v3.2h2.4L8.4 12V4L5.2 6.4zM10.6 6.4l3 3.2M13.6 6.4l-3 3.2',
+  expand: 'M9.6 2.6h3.8v3.8M13.4 2.6 9.2 6.8M6.4 13.4H2.6V9.6M2.6 13.4l4.2-4.2',
 };
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -61,6 +65,19 @@ export function icon(name) {
   path.setAttribute('d', ICONS[name] ?? ICONS.other);
   svg.append(path);
   return svg;
+}
+
+// Pages are native layers drawn above the interface. Whatever of the interface
+// has to show over the page area (a dialog, the large media view) hides them
+// while it is open; they come back when the last of these closes, so one
+// closing does not uncover the pages under another.
+const covering = new Set();
+
+/** `owner` is open over the page area (on) or closed again. */
+export function cover(api, owner, on) {
+  if (on) covering.add(owner);
+  else covering.delete(owner);
+  api.setCovered(covering.size > 0);
 }
 
 /**

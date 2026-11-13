@@ -32,6 +32,7 @@
   --select: rgb(251 95 137 / 0.2);
   --rail: var(--ink);
   --rail-text: var(--paper);
+  --stage: #1d1a16; /* behind a video or picture: dark in both themes, like a screening room */
 
   --rail-w: 60px;
   --panel-w: 340px;
@@ -50,6 +51,7 @@
     --hover: rgb(237 228 211 / 0.08);
     --select: rgb(251 95 137 / 0.26);
     --rail: #0b0a08;
+    --stage: #0b0a08;
   }
 }
 
@@ -459,6 +461,51 @@ button.primary:hover { background: #2a2620; }
 .preview-md .md-link:hover { background: var(--hover); }
 .preview-md .md-link-off { text-decoration: underline dotted var(--muted); text-underline-offset: 2px; }
 .preview-md .md-picture { display: inline-block; max-width: 100%; padding: 0 6px; border: 1px dashed var(--muted); border-radius: 4px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+
+/* ----------------------------------------------------------------- media */
+
+/* A video, picture or sound in the preview area. The picture keeps its
+   proportions in whatever height the preview splitter leaves it. */
+.media-facts { flex: none; margin: -6px 0 6px; padding: 0 12px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.media-stage { position: relative; flex: 1; min-height: 48px; margin: 0 8px; border-radius: var(--radius); background: var(--stage); overflow: hidden; }
+.media-stage:focus-visible { outline: 2px solid var(--pink); outline-offset: 1px; }
+.media-picture { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+img.media-picture { object-fit: scale-down; } /* a small picture is shown at its own size, not blown up */
+.media-stage.is-audio { display: grid; place-items: center; }
+.media-stage.is-audio .icon { width: 44px; height: 44px; color: rgb(237 228 211 / 0.55); stroke-width: 1; }
+
+.media-controls { container-type: inline-size; display: flex; align-items: center; gap: 4px; flex: none; padding: 5px 8px 7px; }
+.media-time { flex: none; min-width: 72px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.media-controls input[type='range'] { height: 16px; margin: 0; accent-color: var(--pink); }
+.media-seek { flex: 1; min-width: 40px; }
+.media-volume { flex: none; width: 64px; }
+@container (max-width: 290px) { .media-volume { display: none; } }
+
+/* A file that cannot be shown: plain words and the way out, no empty box. */
+.media-stage.is-problem { display: grid; place-items: center; overflow: auto; background: var(--surface); border: 1px dashed var(--line); }
+.media-problem { max-width: 36ch; padding: 12px 14px; text-align: center; }
+.media-problem p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.media-problem-title { font: 19px/1.15 'Gochi Hand', cursive; }
+.media-problem .primary { margin-top: 2px; }
+
+/* The large view: the same viewer, over the tab strip, toolbar and pages
+   (which are hidden while it is open; they draw above the interface). */
+#preview.is-large {
+  position: fixed;
+  z-index: 5;
+  inset: 0 calc(var(--panel-w) + 5px) 26px var(--rail-w);
+  height: auto;
+  background: var(--bg);
+}
+#panel:has(#preview.is-large) #preview-splitter { display: none; }
+#preview.is-large .preview-head { height: 46px; padding: 0 10px 0 20px; }
+#preview.is-large .preview-name { font-size: 15px; }
+#preview.is-large .media-facts { margin-top: -8px; padding: 0 20px; font-size: 13px; }
+#preview.is-large .media-stage { margin: 0 16px; }
+#preview.is-large .media-controls { gap: 8px; padding: 8px 16px 12px; }
+.media-keys { margin-right: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.media-back { height: 26px; flex: none; margin-right: 4px; padding: 0 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); font-weight: 600; }
+.media-back:hover { border-color: var(--text); }
 
 /* ---------------------------------------------------------------- status */
 

@@ -7,12 +7,14 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { decode, fileKind, FolderWatcher, listDir, readText, MAX_TEXT_BYTES } from '../src/main/files.js';
+import { MAX_OPEN, MEDIA_SCHEME, MediaServer, mediaType, parseMediaUrl, parseRange } from '../src/main/media.js';
+import { formatDuration, MEDIA_SCHEME as VIEWER_SCHEME, mediaFacts, mediaUrl, shapeOf } from '../src/renderer/viewer.js';
 import {
   addTab, autoLabel, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, focusPane, groupOf, groupSlot,
   isBlank, nameFor, onScreen, placeTab, removeTab, sanitize, setPaneCount, setSplit, showTab, stepTab, stripOrder, tabLabel,
   takeOutOfGroup, UNNAMED_TAB,
 } from '../src/main/model.js';
-import { renameText } from '../src/renderer/dom.js';
+import { cover, renameText } from '../src/renderer/dom.js';
 import { isMarkdownFile, parseMarkdown, plainText, webHref } from '../src/renderer/markdown.js';
 import { notesText, whatsNew } from '../src/main/notes.js';
 import { notesFor } from '../tools/release.mjs';
@@ -1009,4 +1011,227 @@ test('watcher: reports a changed folder once, and lets go of closed ones', async
   watcher.closeAll();
   assert.equal(watcher.size, 0);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ------------------------------------------------------------------ media
+
+test('media address: what the viewer writes, the main process reads back', () => {
+  assert.equal(VIEWER_SCHEME, MEDIA_SCHEME, 'one scheme on both sides');
+  for (const rel of ['clip.mp4', 'reels/launch day/final cut.MOV', 'ünïcødé 🎬.webm', 'a#b?c%d&e.mp4', "it's (1).jpg", '..notes.png']) {
+    assert.deepEqual(parseMediaUrl(mediaUrl('b_0123456789', rel)), { brandId: 'b_0123456789', rel }, rel);
+  }
+  assert.equal(mediaUrl('b_1', 'reels/a b.mp4'), 'fanout-media://file/b_1/reels%2Fa%20b.mp4');
+  // Read the same if something on the way split the path at its slashes.
+  assert.deepEqual(parseMediaUrl('fanout-media://file/b_1/reels/a%20b.mp4'), { brandId: 'b_1', rel: 'reels/a b.mp4' });
+  for (const bad of [
+    'https://file/b_1/a.mp4', 'file:///C:/a.mp4', 'fanout-media://other/b_1/a.mp4', 'fanout-media://file/b_1',
+    'fanout-media://file/b_1/', 'fanout-media://file//a.mp4', 'fanout-media://file/b_1/%E0%A4%A.mp4',
+    'fanout-media://file/b%2F1/a.mp4', 'not a url', '', undefined,
+  ]) {
+    assert.equal(parseMediaUrl(bad), null, String(bad));
+  }
+  // A path that tries to climb out is still parsed; the jail refuses it (tested below).
+  assert.deepEqual(parseMediaUrl(mediaUrl('b_1', '../secret.mp4')), { brandId: 'b_1', rel: '../secret.mp4' });
+});
+
+test('media ranges: one range of bytes is served; nonsense is ignored; hostile values cannot overreach', () => {
+  const size = 1000;
+  const part = (start, end) => ({ start, end, partial: true });
+  const whole = { start: 0, end: 999, partial: false };
+  assert.deepEqual(parseRange(undefined, size), whole);
+  assert.deepEqual(parseRange(null, size), whole);
+  assert.deepEqual(parseRange('bytes=0-', size), part(0, 999));
+  assert.deepEqual(parseRange('bytes=100-199', size), part(100, 199));
+  assert.deepEqual(parseRange('bytes=900-5000', size), part(900, 999), 'the end is cut to the file');
+  assert.deepEqual(parseRange('bytes=-100', size), part(900, 999), 'the last 100 bytes');
+  assert.deepEqual(parseRange('bytes=-5000', size), part(0, 999), 'more than the file: all of it');
+  assert.deepEqual(parseRange(' BYTES=5-9 ', size), part(5, 9), 'the unit in any case');
+  assert.deepEqual(parseRange('bytes=0-0', size), part(0, 0));
+  assert.deepEqual(parseRange('bytes=999-', size), part(999, 999));
+  // Cannot be satisfied: answered 416.
+  for (const header of ['bytes=1000-', 'bytes=5000-6000', 'bytes=-0', 'bytes=99999999999999999999-']) {
+    assert.equal(parseRange(header, size), null, header);
+  }
+  assert.equal(parseRange('bytes=0-', 0), null, 'an empty file has no bytes to give');
+  assert.deepEqual(parseRange(undefined, 0), { start: 0, end: -1, partial: false });
+  // Not one range we understand: ignored, the whole file is streamed.
+  for (const header of ['', 'bytes', 'bytes=', 'bytes=-', 'bytes=5-3', 'bytes=0-1,5-6', 'items=0-5', 'bytes=-1-5',
+    'bytes = 5 - 9', 'bytes=1e3-', 'bytes=0x10-', 'bytes=1.5-', 'bytes=-5-', ' bytes=1-2;', `bytes=${'0'.repeat(300)}-`,
+    'bytes=\u0661-', 'bytes=\uff11-', 42, {}]) {
+    assert.deepEqual(parseRange(header, size), whole, JSON.stringify(header));
+  }
+  // Huge numbers never reach past the file or become unsafe.
+  assert.deepEqual(parseRange('bytes=10-99999999999999999999999', size), part(10, 999));
+  assert.deepEqual(parseRange('bytes=-99999999999999999999999', size), part(0, 999));
+  // A hostile header is answered at once (no backtracking blow-up).
+  const started = performance.now();
+  for (let i = 0; i < 1000; i++) parseRange(`bytes=${'1'.repeat(95)}-${'2'.repeat(95)}x`, size);
+  assert.ok(performance.now() - started < 200, `${performance.now() - started} ms`);
+});
+
+test('media content types: media kinds only', () => {
+  assert.equal(mediaType('clip.MP4'), 'video/mp4');
+  assert.equal(mediaType('reels/teaser.mov'), 'video/quicktime');
+  assert.equal(mediaType('take.webm'), 'video/webm');
+  assert.equal(mediaType('take.mkv'), 'video/x-matroska');
+  assert.equal(mediaType('voice.m4a'), 'audio/mp4');
+  assert.equal(mediaType('song.mp3'), 'audio/mpeg');
+  assert.equal(mediaType('note.opus'), 'audio/ogg');
+  assert.equal(mediaType('cover.jpeg'), 'image/jpeg');
+  assert.equal(mediaType('logo.svg'), 'image/svg+xml');
+  assert.equal(mediaType('phone.HEIC'), 'image/heic');
+  // Every extension the file panel calls media has a real type.
+  for (const ext of ['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'wmv', 'mpg', 'mpeg', '3gp', 'jpg', 'jpeg', 'png', 'gif', 'webp',
+    'heic', 'heif', 'bmp', 'tif', 'tiff', 'svg', 'avif', 'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus']) {
+    assert.match(mediaType(`x.${ext}`), /^(video|image|audio)\//, ext);
+  }
+  for (const name of ['caption.md', 'notes.txt', 'page.html', 'data.json', 'deck.pdf', 'README', '.mp4', 'folder/']) {
+    assert.equal(mediaType(name), null, name);
+  }
+});
+
+/** A media request as the interface makes it. */
+const mediaRequest = (rel, { brandId = 'b_1', range, origin = 'file://', method = 'GET' } = {}) =>
+  Object.assign(new Request(mediaUrl(brandId, rel), { method, headers: range ? { range } : {} }), { initiatorOrigin: origin });
+
+test('media server: whole files and byte ranges, streamed; the handle closes when done or dropped', async () => {
+  const dir = tmpDir();
+  const root = path.join(dir, 'brand');
+  fs.mkdirSync(path.join(root, 'reels'), { recursive: true });
+  const bytes = Buffer.alloc(300_000);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
+  fs.writeFileSync(path.join(root, 'reels', 'take one.mp4'), bytes);
+  fs.writeFileSync(path.join(root, 'empty.mp4'), '');
+  const server = new MediaServer({ folderOf: (id) => (id === 'b_1' ? root : null) });
+  server.trace = [];
+
+  const all = await server.handle(mediaRequest('reels/take one.mp4'));
+  assert.equal(all.status, 200);
+  assert.equal(all.headers.get('content-type'), 'video/mp4');
+  assert.equal(all.headers.get('content-length'), '300000');
+  assert.equal(all.headers.get('accept-ranges'), 'bytes');
+  assert.equal(all.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(server.openStreams, 1, 'a handle is open while the response is read');
+  assert.ok(Buffer.from(await all.arrayBuffer()).equals(bytes));
+  assert.equal(server.openStreams, 0, 'and closed after the last byte');
+
+  const part = await server.handle(mediaRequest('reels/take one.mp4', { range: 'bytes=200000-200009' }));
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('content-range'), 'bytes 200000-200009/300000');
+  assert.equal(part.headers.get('content-length'), '10');
+  assert.ok(Buffer.from(await part.arrayBuffer()).equals(bytes.subarray(200000, 200010)));
+
+  const tail = await server.handle(mediaRequest('reels/take one.mp4', { range: 'bytes=-5' }));
+  assert.ok(Buffer.from(await tail.arrayBuffer()).equals(bytes.subarray(-5)));
+
+  const beyond = await server.handle(mediaRequest('reels/take one.mp4', { range: 'bytes=300000-' }));
+  assert.equal(beyond.status, 416);
+  assert.equal(beyond.headers.get('content-range'), 'bytes */300000');
+
+  // A player that reads a little and goes away (seeking, or the viewer closed).
+  const dropped = await server.handle(mediaRequest('reels/take one.mp4', { range: 'bytes=0-' }));
+  const reader = dropped.body.getReader();
+  const first = await reader.read();
+  assert.ok(first.value.length > 0 && first.value.length <= 64 * 1024, 'read in chunks, not whole');
+  assert.equal(server.openStreams, 1);
+  await reader.cancel();
+  assert.equal(server.openStreams, 0, 'cancelling the response closes the file');
+  assert.equal(server.trace.at(-1).closed, 'cancel');
+  assert.ok(server.trace.at(-1).bytes < bytes.length, 'only what was pulled was read');
+
+  const head = await server.handle(mediaRequest('reels/take one.mp4', { method: 'HEAD' }));
+  assert.equal(head.status, 200);
+  assert.equal(head.body, null);
+  const empty = await server.handle(mediaRequest('empty.mp4'));
+  assert.equal(empty.status, 200);
+  assert.equal(empty.headers.get('content-length'), '0');
+  assert.equal(server.openStreams, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('media server: only media files inside the brand folder, only for the interface', async () => {
+  const dir = tmpDir();
+  const root = path.join(dir, 'brand');
+  fs.mkdirSync(path.join(root, 'folder.mp4'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'clip.mp4'), 'x');
+  fs.writeFileSync(path.join(root, 'caption.md'), '# words');
+  fs.writeFileSync(path.join(dir, 'secret.mp4'), 'not yours');
+  const server = new MediaServer({ folderOf: (id) => (id === 'b_1' ? root : null) });
+  const status = async (rel, options) => {
+    const response = await server.handle(mediaRequest(rel, options));
+    await response.body?.cancel();
+    return response.status;
+  };
+
+  assert.equal(await status('clip.mp4'), 200);
+  assert.equal(await status('../secret.mp4'), 403, 'outside the folder');
+  assert.equal(await status('a/../../secret.mp4'), 403);
+  assert.equal(await status('..\\secret.mp4'), process.platform === 'win32' ? 403 : 404);
+  assert.equal(await status(path.join(dir, 'secret.mp4')), 403, 'an absolute path');
+  assert.equal(await status('caption.md'), 403, 'text goes through the preview, not here');
+  assert.equal(await status('clip.exe'), 403);
+  assert.equal(await status('folder.mp4'), 403, 'a folder is not a file');
+  assert.equal(await status('missing.mp4'), 404);
+  assert.equal(await status('clip.mp4', { brandId: 'b_2' }), 404, 'no such brand');
+  assert.equal(await status('clip.mp4', { origin: 'https://www.instagram.com' }), 403, 'a web page asked');
+  assert.equal(await status('clip.mp4', { origin: 'null' }), 403);
+  assert.equal(await status('clip.mp4', { method: 'POST' }), 405);
+  assert.equal((await server.handle(Object.assign(new Request('fanout-media://file/b_1'), { initiatorOrigin: 'file://' }))).status, 400);
+  const unnamed = await server.handle(new Request(mediaUrl('b_1', 'clip.mp4')));
+  await unnamed.body.cancel();
+  assert.equal(unnamed.status, 200, 'no initiator: started by the browser itself');
+  assert.equal(server.openStreams, 0);
+
+  let linked = false;
+  try {
+    fs.symlinkSync(dir, path.join(root, 'way-out'), 'junction');
+    linked = true;
+  } catch { /* links not permitted here */ }
+  if (linked) assert.equal(await status('way-out/secret.mp4'), 403, 'a link out of the folder');
+
+  // A runaway (handles left open) is bounded.
+  const held = [];
+  for (let i = 0; i < MAX_OPEN; i++) held.push(await server.handle(mediaRequest('clip.mp4')));
+  assert.equal(server.openStreams, MAX_OPEN);
+  assert.equal(await status('clip.mp4'), 503);
+  await Promise.all(held.map((response) => response.body.cancel()));
+  assert.equal(server.openStreams, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('media facts: size and shape, length to a tenth, file size', () => {
+  assert.equal(shapeOf(1080, 1920), 'vertical 9:16');
+  assert.equal(shapeOf(1920, 1080), 'horizontal 16:9');
+  assert.equal(shapeOf(1080, 1350), 'vertical 4:5');
+  assert.equal(shapeOf(1080, 1080), 'square');
+  assert.equal(shapeOf(1200, 628), 'horizontal 1.91:1');
+  assert.equal(shapeOf(1000, 700), 'horizontal');
+  assert.equal(shapeOf(0, 0), '');
+  assert.equal(shapeOf(undefined, 5), '');
+
+  assert.equal(formatDuration(7), '0:07');
+  assert.equal(formatDuration(63.9), '1:03');
+  assert.equal(formatDuration(3723), '1:02:03');
+  assert.equal(formatDuration(42.34, { tenths: true }), '0:42.3');
+  assert.equal(formatDuration(59.96, { tenths: true }), '1:00.0');
+  assert.equal(formatDuration(3600.06, { tenths: true }), '1:00:00.1');
+  for (const unknown of [Infinity, NaN, -1, undefined]) assert.equal(formatDuration(unknown), '');
+
+  assert.equal(mediaFacts({ width: 1080, height: 1920, duration: 42.34, size: 40_000_000 }), '1080 × 1920, vertical 9:16 · 0:42.3 · 38.1 MB');
+  assert.equal(mediaFacts({ width: 4000, height: 3000, duration: NaN, size: 2_500_000 }), '4000 × 3000, horizontal 4:3 · 2.4 MB');
+  assert.equal(mediaFacts({ duration: 185, size: 3000 }), '3:05.0 · 3 KB', 'a sound');
+  assert.equal(mediaFacts({ width: 640, height: 360, duration: Infinity, size: 10 }), '640 × 360, horizontal 16:9 · 10 B');
+});
+
+test('pages stay hidden until the last thing covering them closes', () => {
+  const calls = [];
+  const api = { setCovered: (on) => calls.push(on) };
+  const dialog = {};
+  const viewer = {};
+  cover(api, viewer, true); // the large view
+  cover(api, dialog, true); // a dialog over it
+  cover(api, dialog, false); // the dialog closes: the large view still covers the pages
+  cover(api, viewer, false);
+  cover(api, viewer, false); // closing twice changes nothing
+  assert.deepEqual(calls, [true, true, true, false, false]);
 });

@@ -1,23 +1,28 @@
-// The text preview under the file tree. Click a text file to read it; select
-// any part of it and that part is on the clipboard, ready to paste into a
-// caption box. A Markdown file is shown formatted (markdown.js reads it, this
-// file draws it with h(): text stays text, nothing becomes HTML); "Source"
-// shows it as it is written.
+// The preview under the file tree. Click a text file to read it; select any
+// part of it and that part is on the clipboard, ready to paste into a caption
+// box. A Markdown file is shown formatted (markdown.js reads it, this file
+// draws it with h(): text stays text, nothing becomes HTML); "Source" shows it
+// as it is written. Videos, pictures and sounds are shown by the media viewer
+// (viewer.js) in the same place.
 //
 // Memory: the text lives only in the page (one text node, or the formatted
 // elements), never in a variable here, and is released when the preview
 // closes or the brand changes. Switching between the two views reads the
-// file again rather than keeping a copy.
+// file again rather than keeping a copy. Showing text, closing or switching
+// brand also lets go of any media the viewer held.
 
 import { formatSize, h, icon } from './dom.js';
 import { isMarkdownFile, parseMarkdown, plainText } from './markdown.js';
+import { MediaViewer } from './viewer.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_NESTING = 32; // formatting nested deeper than this is drawn as plain text
+const parentOf = (rel) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
 
 export class Preview {
   #api;
   #note;
+  #viewer;
   #brandId = null;
   #rel = null;
   #name = '';
@@ -26,7 +31,8 @@ export class Preview {
   #request = 0;
   #source = false; // Markdown shown as written; remembered while the app runs
 
-  constructor({ api, note }) {
+  /** `nearby(file, by)`: the media file `by` rows away in the same folder, for the viewer's arrow keys. */
+  constructor({ api, note, nearby }) {
     this.#api = api;
     this.#note = note;
     // The selection is final when the mouse button or a key is released.
@@ -35,10 +41,12 @@ export class Preview {
     section.addEventListener('keyup', (e) => {
       if (e.shiftKey || e.key === 'Shift' || (e.key === 'a' && (e.ctrlKey || e.metaKey))) this.#copySelection();
     });
+    this.#viewer = new MediaViewer({ api, note, section, nearby, onClose: () => this.close() });
   }
 
   async show(brandId, rel, name) {
     const request = ++this.#request;
+    this.#viewer.release();
     this.#brandId = brandId;
     this.#rel = rel;
     this.#name = name;
@@ -47,25 +55,53 @@ export class Preview {
     this.#render(result);
   }
 
-  /** A watched folder changed: read the open file again if it lives there. */
-  refreshIfIn(relDir) {
-    if (this.#rel === null) return;
-    const parent = this.#rel.includes('/') ? this.#rel.slice(0, this.#rel.lastIndexOf('/')) : '';
-    if (parent === relDir) this.show(this.#brandId, this.#rel, this.#name);
+  /** Show a video, picture or sound: `entry` is its row of the file listing. */
+  showMedia(brandId, entry) {
+    this.#request += 1; // a text file still being read is not shown after all
+    this.#rel = null;
+    this.#body = null;
+    this.#viewer.show({ brandId, ...entry });
+    $('preview-splitter').hidden = false;
+  }
+
+  /**
+   * A watched folder was read again (`entries` is its new listing): the open
+   * text file is read again if it lives there; media that is gone closes, and
+   * media that changed on disk is shown afresh.
+   */
+  refreshIfIn(relDir, entries) {
+    const media = this.#viewer.file;
+    if (media) {
+      if (parentOf(media.rel) !== relDir) return;
+      const entry = entries.find((e) => e.rel === media.rel && !e.dir);
+      if (!entry) return this.close();
+      if (entry.size !== media.size || entry.mtime !== media.mtime) this.#viewer.show({ brandId: media.brandId, ...entry });
+      return;
+    }
+    if (this.#rel !== null && parentOf(this.#rel) === relDir) this.show(this.#brandId, this.#rel, this.#name);
+  }
+
+  /** The file panel was hidden: the large view lives in it, so it closes too. */
+  panelShown(shown) {
+    if (!shown) this.#viewer.setLarge(false);
   }
 
   close() {
     this.#request += 1;
+    this.#viewer.release();
     this.#rel = null;
     this.#body = null;
     this.#lastCopied = '';
-    $('preview').replaceChildren();
-    $('preview').hidden = true;
+    const section = $('preview');
+    section.classList.remove('is-media');
+    section.replaceChildren();
+    section.hidden = true;
     $('preview-splitter').hidden = true;
   }
 
   #render(result) {
     const section = $('preview');
+    section.classList.remove('is-media');
     const markdown = isMarkdownFile(this.#name);
     const view = markdown && !this.#source ? 'formatted' : 'text';
     const scrolled = this.#body?.scrollTop ?? 0;

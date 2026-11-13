@@ -1,7 +1,7 @@
 // The two dialogs: a brand (new or edited) and settings. While one is open
 // the page layer is hidden, because pages are drawn above the interface.
 
-import { h, icon, inkOn } from './dom.js';
+import { cover, h, icon, inkOn } from './dom.js';
 
 /** Show a <dialog>; resolves with whatever `finish` was called with when it closes. */
 function modal(api, build) {
@@ -15,13 +15,13 @@ function modal(api, build) {
     dialog.append(build(finish));
     dialog.addEventListener('close', () => {
       dialog.remove();
-      api.setCovered(false);
+      cover(api, dialog, false);
       resolve(result);
     });
     // Clicking the dimmed area around the dialog closes it.
     dialog.addEventListener('mousedown', (e) => { if (e.target === dialog) finish(null); });
     document.body.append(dialog);
-    api.setCovered(true);
+    cover(api, dialog, true);
     dialog.showModal();
   });
 }
