@@ -29,6 +29,9 @@
 // driven through its own bridge and DOM, as tools/smoke.mjs does. Each page's
 // own capture is kept in .smoke/screenshots/pages, to look at before using a shot.
 
+// The media viewer's scheme has to be registered before the app is ready, and
+// main.js is loaded only later, after the throwaway profile is chosen (gotchas).
+import '../src/main/mediaprotocol.js';
 import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, screen } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -459,7 +462,9 @@ window.clip = (o) => new Promise((resolve, reject) => {
   const c = canvas(o), g = c.getContext('2d');
   const stream = c.captureStream(0);
   const [track] = stream.getVideoTracks();
-  const type = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9'].find((t) => MediaRecorder.isTypeSupported(t));
+  // H.264 High 4.0 first: level 3.0 (42E01E) cannot hold large frames (docs/gotchas.md).
+  const type = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9']
+    .find((t) => MediaRecorder.isTypeSupported(t));
   const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(o.w * o.h * 3) });
   const parts = [];
   recorder.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
@@ -758,6 +763,35 @@ const SHOTS = [
     },
   },
   {
+    // The media viewer's larger view on the hero clip, the way the smoke test opens it:
+    // a click on the file, the larger-view button, the position slider. It covers the
+    // tab strip, toolbar and pages with the interface itself, so no page is in the picture.
+    name: 'viewer',
+    theme: 'light',
+    async arrange(kit) {
+      const acme = kit.brand('Acme Foods');
+      await kit.bridge('selectBrand', acme.id);
+      kit.ctx.tabs.focusPane(acme.id, 0);
+      kit.ctx.window.webContents.setAudioMuted(true); // the clip has no sound; nothing here may be heard anyway
+      await kit.files({ open: ['autumn menu'], preview: 'autumn-menu-launch.mp4' });
+      await kit.dom(`document.querySelector('#preview [data-act="large"]').click()`);
+      const ui = kit.ctx.window.webContents;
+      await until(() => kit.ctx.window.contentView.children.every((view) => view.webContents === ui));
+      // A frame with the titles in and the steam rising (the clip is 8 s; the titles are in by 2.2 s).
+      await kit.dom(`new Promise((resolve) => {
+        const video = document.querySelector('#preview video');
+        const slider = document.querySelector('#preview .media-seek');
+        video.addEventListener('seeked', () => setTimeout(resolve, 300), { once: true });
+        slider.value = '4.2';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      })`);
+    },
+    async after(kit) {
+      await kit.dom(`document.querySelector('#preview [data-act="small"]')?.click()`);
+      await kit.dom(`document.querySelector('#preview [data-act="close"]')?.click()`);
+    },
+  },
+  {
     name: 'posted-dark',
     theme: 'dark',
     async arrange(kit) {
@@ -767,11 +801,10 @@ const SHOTS = [
       await kit.bridge('selectTab', page.id);
       // A page reads the colour scheme as it loads; loading it again shows it dark.
       kit.ctx.tabs.act(page.id, 'reload');
-      await kit.files({ open: ['kyoto in autumn', 'lisbon weekend'], preview: null, select: 'lisbon weekend/tram-28-timelapse.mp4' });
+      // Nothing selected: a click on a video would open the viewer, which has its own picture.
+      await kit.files({ open: ['kyoto in autumn', 'lisbon weekend'], preview: null });
     },
   },
-  // Next: 'viewer', the media viewer's large view on 'autumn-menu-launch.mp4' (Acme Foods),
-  // once the viewer is on main. The clip is already in the sample folder.
 ];
 
 // -------------------------------------------------------------------- run
@@ -791,7 +824,7 @@ async function run(ctx) {
     dom: inInterface,
     brand: (name) => ctx.store.data.brands.find((brand) => brand.name === name),
     tab: (brand, site) => brand.tabs.find((tab) => tab.homeUrl === SITES[site]),
-    /** Open folders in the file panel, show a file in the preview (null closes it), select a file. */
+    /** Open folders in the file panel, show a file in the preview or viewer (null closes it), select a file. */
     async files({ open = [], preview, select }) {
       const row = (rel) => `document.querySelector(${JSON.stringify(`#tree .row[data-rel="${rel}"]`)})`;
       const there = (rel) => until(() => kit.dom(`Boolean(${row(rel)})`));
@@ -803,7 +836,9 @@ async function run(ctx) {
       if (preview) {
         await there(preview);
         await kit.dom(`${row(preview)}.click()`);
-        await until(() => kit.dom(`Boolean(document.querySelector('#preview:not([hidden]) :is(.preview-md, .preview-text)'))`));
+        // Text is shown as soon as it is read; a video, picture or sound once it is loaded.
+        await until(() => kit.dom(`(() => { const p = document.getElementById('preview');
+          return !p.hidden && (Boolean(p.querySelector('.preview-md, .preview-text')) || p.dataset.ready === '1'); })()`));
       } else if (preview === null) {
         await kit.dom(`document.querySelector('#preview:not([hidden]) .tool[title="Close"]')?.click()`);
       }
@@ -885,9 +920,19 @@ async function run(ctx) {
     const brand = ctx.store.data.brands.find((b) => b.id === ctx.store.data.activeBrandId);
     const onScreen = (brand.solo ? [brand.solo] : brand.panes).map((id) => brand.tabs.find((tab) => tab.id === id)).filter(Boolean);
     await until(() => onScreen.every((tab) => settled(tab)), 30000);
-    await wait(6000);
-
-    const { image, pages } = await compose(ctx.window);
+    await wait(3000);
+    // Pages animate (a box fading in, a banner sliding): take the picture once two in a
+    // row, 1.5 s apart, agree.
+    let picture = await compose(ctx.window);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await wait(1500);
+      const next = await compose(ctx.window);
+      const moved = difference(picture.image, next.image)?.share ?? 1;
+      picture = next;
+      if (moved < 0.001) break;
+      console.log(`    still changing (${(moved * 100).toFixed(2)}% of pixels), waiting`);
+    }
+    const { image, pages } = picture;
     const file = path.join(OUT, `${shot.name}.png`);
     fs.writeFileSync(file, image.toPNG());
     const { width, height } = image.getSize();
