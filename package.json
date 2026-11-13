@@ -14,6 +14,7 @@
     "smoke": "electron tools/smoke.mjs",
     "icon": "electron tools/make-icon.mjs",
     "measure": "electron tools/measure-memory.mjs",
+    "screenshots": "electron tools/screenshots.mjs",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir"
   },
