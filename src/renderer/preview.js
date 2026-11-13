@@ -156,7 +156,8 @@ export class Preview {
         copyAll,
         h('button', { class: 'tool', title: 'Close', onclick: () => this.close() }, icon('close'))),
       body,
-      readable ? h('p', { class: 'preview-hint' }, 'Select text to copy it.') : null,
+      // Not a null in its place: replaceChildren() would show it as the text "null".
+      ...(readable ? [h('p', { class: 'preview-hint' }, 'Select text to copy it.')] : []),
     );
     section.hidden = false;
     $('preview-splitter').hidden = false;

@@ -167,7 +167,8 @@ export class MediaViewer {
     }, file.kind === 'audio' ? icon('audio') : null, el);
     this.#parts = { stage, facts: h('p', { class: 'media-facts' }, formatSize(file.size)) };
     this.#parts.head = this.#head();
-    section.replaceChildren(this.#parts.head, this.#parts.facts, stage, file.kind === 'image' ? null : this.#controls());
+    // replaceChildren() would write a null as the text "null": a picture has no controls, so leave it out.
+    section.replaceChildren(this.#parts.head, this.#parts.facts, stage, ...(file.kind === 'image' ? [] : [this.#controls()]));
     section.hidden = false;
     if (this.#large) stage.focus();
   }
