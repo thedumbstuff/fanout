@@ -15,7 +15,7 @@
 
 <p align="center">
   Yes, it is a browser for people who already have a browser. We are aware.<br>
-  No, it does not post for you. The platforms forbid that, and we would like to keep our accounts.<br>
+  No, it does not post for you. Most platforms forbid automating the site itself, and we would like to keep our accounts.<br>
   It puts everything in one window and stays out of the way.
 </p>
 
