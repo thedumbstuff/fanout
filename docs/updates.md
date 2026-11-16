@@ -103,14 +103,39 @@ answers multi-range requests through Cloudflare (seen on ContextWire's installer
 
 **Before the first publish** the site change has to be deployed (thedumbstuff-site,
 roadmap P9; the owner pushes and runs the Jenkins job). Until then the site answers the
-parts requests "not found" and `publish --yes` stops at the first one.
+parts requests "not found" and `publish --yes` stops at the first one, having sent nothing.
+The steps, with how to see that the live site has the new code and what to do if an upload is
+cut off: thedumbstuff-site `docs/installer.md`, "Publishing fanout".
 
 **After the first publish** (roadmap P4.3):
 
-- `python tools/check_download.py` in thedumbstuff-site checks fanout's download and feed.
-- README: the download line (`https://thedumbstuff.page/downloads/fanout/current/fanout-setup.exe`,
-  or fanout's page on the site once it has one).
-- roadmap.yaml: P4.3 done, with that check.
+1. `python tools/check_download.py` in thedumbstuff-site: fanout's checks pass (its installer,
+   size, SHA-256 and SHA-512, the feed, the versioned address, the blockmap, and the buttons on
+   its page) instead of the "SKIP fanout" lines.
+2. README, the lines under the tagline. Replace
+
+   ```html
+   <p align="center">
+     No download yet: for now the Windows installer is built from the source (<a href="#build-an-installer">below</a>).
+     Downloads on <a href="https://thedumbstuff.page/">thedumbstuff.page</a> are coming. macOS and Linux are untested.
+   </p>
+   ```
+
+   with
+
+   ```html
+   <p align="center">
+     <b><a href="https://thedumbstuff.page/downloads/fanout/current/fanout-setup.exe">Download for Windows</a></b>
+     (Windows 10 and 11, 64-bit) from <a href="https://thedumbstuff.page/fanout/">thedumbstuff.page</a>; it updates itself.
+     macOS and Linux are untested: build them from the source (<a href="#build-an-installer">below</a>).
+   </p>
+   ```
+
+   and in the feature list replace "**It updates itself**, once downloads are on
+   thedumbstuff.page: new versions download" with "**It updates itself**: new versions
+   download".
+3. roadmap.yaml: P4.3 done, with the check `python ../thedumbstuff-site/tools/check_download.py`;
+   feature F11 shipped.
 
 ## Testing an update on one PC (done 2026-11-12)
 

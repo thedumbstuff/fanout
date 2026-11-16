@@ -56,7 +56,9 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
   2026-11-16; D4 resolved: the Chrome disguise was the cause). Still open (roadmap P5): a
   completed sign-in on the other platforms (their sign-in pages load; none reported yet)
   and a real drag-and-drop upload.
-- macOS and Linux builds need CI (repo not pushed yet). Installers are unsigned.
+- The repository is public: https://github.com/thedumbstuff/fanout (owner, 2026-11-16).
+- macOS and Linux builds come from CI (`.github/workflows/build.yml`; its first run, on
+  9f6f567, built all three) and are untested. Installers are unsigned.
 - Updates (`docs/updates.md`): the app side works, and `tools/release.mjs publish` uploads in
   parts to thedumbstuff-site's downloads service, which takes fanout since 2026-11-16 (its
   branch fanout-downloads); nothing is published until that is deployed (roadmap P4.3).

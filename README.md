@@ -114,6 +114,8 @@ Windows: double-click `Open fanout.bat` (it installs what it needs the first tim
 Any system, with Node.js 22 or newer:
 
 ```
+git clone https://github.com/thedumbstuff/fanout
+cd fanout
 npm install
 npm start
 ```
@@ -124,9 +126,10 @@ npm start
 node tools/release.mjs build  # for the system you are on
 ```
 
-The result is in `dist/`. The workflow in `.github/workflows/build.yml` is set up to
-build Windows, macOS and Linux installers; it has not run yet. The installers are not
-code signed yet, so Windows and macOS warn before the first run.
+The result is in `dist/`. The workflow in `.github/workflows/build.yml` builds Windows,
+macOS and Linux installers on every push; the macOS and Linux ones have not been tried on
+those systems yet. The installers are not code signed yet, so Windows and macOS warn
+before the first run.
 
 ## Develop
 

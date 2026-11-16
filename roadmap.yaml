@@ -296,7 +296,7 @@ phases:
         title: macOS (.dmg) and Linux (AppImage, .deb) builds
         status: pending
         effort: 3
-        why: "They can only be built on those systems. .github/workflows/build.yml builds all three once the repository is pushed to GitHub (owner pushes)."
+        why: "They can only be built on those systems: .github/workflows/build.yml builds all three on every push. The repository is public (https://github.com/thedumbstuff/fanout); its first run (on 9f6f567) succeeded with artifacts fanout-windows-latest, fanout-macos-latest and fanout-ubuntu-latest. Not tried on macOS or Linux (P5.3), and the site takes only fanout's Windows installer so far (thedumbstuff-site api/downloads.py has the rows for Linux and macOS written out, not switched on)."
         checks:
           - {type: path, path: .github/workflows/build.yml}
       - id: P4.3
