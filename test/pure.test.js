@@ -17,7 +17,7 @@ import {
 import { cover, renameText } from '../src/renderer/dom.js';
 import { isMarkdownFile, parseMarkdown, plainText, webHref } from '../src/renderer/markdown.js';
 import { notesText, whatsNew } from '../src/main/notes.js';
-import { notesFor } from '../tools/release.mjs';
+import { notesFor, PART_SIZE, partsOf, stillToSend, uploadsOf, worthRetrying } from '../tools/release.mjs';
 import { isInside, OutsideFolderError, resolveInside, toRel } from '../src/main/pathjail.js';
 import { PostedStore } from '../src/main/posted.js';
 import { pickTabsToSleep, UploadActivity } from '../src/main/sleeper.js';
@@ -858,6 +858,49 @@ test('changelog sections become release notes', () => {
   assert.equal(notesFor(log, '0.2'), '', 'a prefix of a version is not that version');
   assert.equal(notesFor(log, '9.9.9'), '');
   assert.equal(notesFor('## 1.0.0\n- a long\n  wrapped item\n- next', '1.0.0'), '- a long wrapped item\n- next');
+});
+
+test('publishing uploads the installers the feed names and their blockmaps, never the feed', () => {
+  const windows = 'version: 0.2.0\nfiles:\n  - url: fanout-setup-0.2.0.exe\n    sha512: abc==\n    size: 112898811\npath: fanout-setup-0.2.0.exe\n';
+  const linux = "version: '0.2.0'\nfiles:\n  - url: fanout-0.2.0-x86_64.AppImage\n  - url: fanout-0.2.0-amd64.deb\n";
+  const dist = new Set(['fanout-setup-0.2.0.exe', 'fanout-setup-0.2.0.exe.blockmap', 'fanout-0.2.0-x86_64.AppImage', 'fanout-0.2.0-amd64.deb']);
+  const has = (name) => dist.has(name);
+  assert.deepEqual(uploadsOf([{ name: 'latest.yml', text: windows }], '0.2.0', has),
+    ['fanout-setup-0.2.0.exe', 'fanout-setup-0.2.0.exe.blockmap'], 'path: names the same installer again; it goes once');
+  assert.deepEqual(uploadsOf([{ name: 'latest-linux.yml', text: linux }], '0.2.0', has),
+    ['fanout-0.2.0-x86_64.AppImage', 'fanout-0.2.0-amd64.deb'], 'no blockmap in dist/: none uploaded');
+  assert.throws(() => uploadsOf([{ name: 'latest.yml', text: windows }], '0.2.1', has), /not version 0\.2\.1: build first/);
+  assert.throws(() => uploadsOf([{ name: 'latest.yml', text: windows.replace('0.2.0\n', '0.2.01\n') }], '0.2.0', has), /build first/,
+    'a version that only starts the same is another version');
+  assert.throws(() => uploadsOf([], '0.2.0', has), /no update feed/);
+});
+
+test('a file goes up in parts of 16 MB, the last one shorter', () => {
+  assert.equal(PART_SIZE, 16 * 1024 * 1024);
+  assert.ok(PART_SIZE < 100 * 1000 * 1000, "well under Cloudflare's 100 MB a request");
+  const parts = partsOf(112898811);
+  assert.equal(parts.length, 7, 'the 0.2.0 installer');
+  assert.deepEqual(parts[0], { n: 0, start: 0, length: PART_SIZE });
+  assert.deepEqual(parts[6], { n: 6, start: 6 * PART_SIZE, length: 112898811 - 6 * PART_SIZE });
+  assert.equal(parts.reduce((sum, part) => sum + part.length, 0), 112898811, 'every byte once');
+  assert.ok(parts.every((part, i) => i === 0 || part.start === parts[i - 1].start + parts[i - 1].length), 'no gaps, no overlaps');
+  assert.deepEqual(partsOf(120452), [{ n: 0, start: 0, length: 120452 }], 'a blockmap is one part');
+  assert.deepEqual(partsOf(2 * PART_SIZE).map((part) => part.length), [PART_SIZE, PART_SIZE], 'an exact multiple has no empty last part');
+  for (const bad of [0, -1, 1.5, NaN, '5']) assert.throws(() => partsOf(bad), /not a file size/, String(bad));
+});
+
+test('a publish run again sends only what the site lacks', () => {
+  const parts = partsOf(5 * PART_SIZE + 1);
+  assert.deepEqual(stillToSend(parts, { parts: 6, have: [] }).map((part) => part.n), [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(stillToSend(parts, { parts: 6, have: [0, 1, 4] }).map((part) => part.n), [2, 3, 5], 'cut off half way');
+  assert.deepEqual(stillToSend(parts, { same: true }), [], 'the site has the whole file: skipped');
+  assert.deepEqual(stillToSend(parts, { have: 'junk' }).length, 6, 'an answer that makes no sense sends everything');
+  assert.deepEqual(stillToSend(parts, null).length, 6);
+});
+
+test('a request is sent again only when nothing came back or the site was busy', () => {
+  for (const status of [null, 429, 502, 503, 504]) assert.ok(worthRetrying(status), String(status));
+  for (const status of [400, 401, 404, 409, 413, 500]) assert.ok(!worthRetrying(status), `${status}: the answer is final`);
 });
 
 test('update settings survive a save and a damaged file', () => {

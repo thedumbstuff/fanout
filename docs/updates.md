@@ -59,24 +59,58 @@ D5). ContextWire's updates carry their own signature; fanout's do not.
 ```
 1. package.json: new version.  docs/changelog.md: a "## <version>" section (the notes).
 2. node tools/release.mjs build          installer + latest.yml in dist/
-3. node tools/release.mjs publish        shows what would be uploaded
+3. node tools/release.mjs publish        shows what would be uploaded, and where
    node tools/release.mjs publish --yes  uploads and makes it current
 ```
 
-**Publishing does not work yet.** Two things on thedumbstuff.page have to change first
-(roadmap P4.3), both in `thedumbstuff-site/api/downloads.py`:
+`publish` sends the installer and its `.blockmap` (the files `dist/latest.yml` names) to
+thedumbstuff.page's downloads service (`thedumbstuff-site/api/downloads.py`, its
+`docs/installer.md`), then publishes them with the notes of that version from
+`docs/changelog.md`. It needs the site's upload token: `DOWNLOADS_UPLOAD_TOKEN`, or the one
+line of `%USERPROFILE%\.tauri\contextwire-downloads.token` (one token for all the site's
+downloads; never printed). It prints the target first and sends nothing without `--yes`.
+`FANOUT_SITE` points it at another site (a local preview).
 
-1. The downloads service knows one product, ContextWire, with fixed file names, `.sig`
-   files and Tauri's `latest.json`. It has to accept `fanout` and serve its
-   `latest*.yml`, installers and blockmaps under `/downloads/fanout/current/`.
-2. The Windows installer is 107.6 MB and Cloudflare refuses requests over 100 MB.
-   The service needs uploads in parts, or another way in. (Electron 45's own program
-   is 238 MB before compression; trimming languages and maximum compression only took
-   the installer from 115.6 to 107.6 MB.)
+How it gets there:
 
-`publish` already speaks the service's existing protocol (`PUT
-/api/downloads/fanout/<version>/<file>`, `POST .../publish`, the same token) and refuses
-files over 100 MB, so it says what is wrong instead of failing half way.
+- **In parts.** The installer is 107.7 MB and Cloudflare refuses a request over 100 MB, so
+  every file goes in parts of 16 MB: `POST .../fanout/<v>/<file>/parts` announces the size
+  and the SHA-256 of the file and of each part, `PUT .../parts/<n>` sends one,
+  `POST .../parts/done` lets the site put them together. The site checks each part as it
+  arrives and the whole (size, SHA-256, starts like a Windows program) before the file
+  counts. A part that gets no answer, or a busy one, is sent again (four tries).
+- **Cut off?** Run `publish --yes` again. The site says which parts it has and only the
+  others are sent; a file it has whole is skipped ("already there"). Nothing is published
+  until every file is there and checked.
+- **The feed is the site's.** `dist/latest.yml` is not uploaded: on publish the site writes
+  `/downloads/fanout/current/latest.yml` itself from the file it holds (version, SHA-512,
+  size, date, notes), naming the installer by its versioned address
+  `../<v>/fanout-setup-<v>.exe`. The updater then finds the blockmaps for an update that
+  fetches only the changed blocks: `<that address>.blockmap`, and the running version's at
+  the same address with its own version (`../0.2.0/fanout-setup-0.2.0.exe.blockmap`). The
+  site keeps the newest three versions besides the current one.
+- `/downloads/fanout/current/fanout-setup.exe` is the newest installer under a name that
+  never changes (the download button), and `current/release.json` what the page shows.
+
+Proved on this PC on 2026-11-16 against the site's preview (`tools/dev_server.py`, a
+throwaway token): `publish --yes` cut off after 3 of 7 parts went on from part 4; run again,
+it skipped both files. electron-updater 6.8.11 itself (from a scratch Electron app, never
+fanout, so nothing was installed) found 0.2.0 in the site's feed, downloaded it and its
+SHA-512 check passed; with 0.2.0 and the throwaway 0.2.1 published, a 0.2.0 asked for both
+blockmaps (both answered), planned 48 changed blocks (935 KB of 110 MB) and, from a server
+that answers ranges, fetched only those; the result passed the SHA-512 check. The live site
+answers multi-range requests through Cloudflare (seen on ContextWire's installer).
+
+**Before the first publish** the site change has to be deployed (thedumbstuff-site,
+roadmap P9; the owner pushes and runs the Jenkins job). Until then the site answers the
+parts requests "not found" and `publish --yes` stops at the first one.
+
+**After the first publish** (roadmap P4.3):
+
+- `python tools/check_download.py` in thedumbstuff-site checks fanout's download and feed.
+- README: the download line (`https://thedumbstuff.page/downloads/fanout/current/fanout-setup.exe`,
+  or fanout's page on the site once it has one).
+- roadmap.yaml: P4.3 done, with that check.
 
 ## Testing an update on one PC (done 2026-11-12)
 

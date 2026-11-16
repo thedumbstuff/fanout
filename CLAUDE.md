@@ -30,7 +30,7 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 ## Working here
 
 ```
-npm test                       # 44 unit tests
+npm test                       # 48 unit tests
 npm run smoke                  # 77 checks on the real app; opens a window (muted)
 npm run measure                # memory on six real sites; takes about 2 minutes
 npm run screenshots            # README pictures from the real app (sample data); opens a window, about 2 minutes
@@ -56,7 +56,8 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
   Google refused sign-in while fanout claimed to be Chrome; the honest user agent is in,
   a real Google sign-in is still unproven (D4).
 - macOS and Linux builds need CI (repo not pushed yet). Installers are unsigned.
-- Updates (`docs/updates.md`): the app side works; nothing can be published until
-  thedumbstuff-site's downloads service takes fanout and a file over 100 MB (roadmap P4.3).
+- Updates (`docs/updates.md`): the app side works, and `tools/release.mjs publish` uploads in
+  parts to thedumbstuff-site's downloads service, which takes fanout since 2026-11-16 (its
+  branch fanout-downloads); nothing is published until that is deployed (roadmap P4.3).
 - fanout 0.2.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-12).
 - Later: caption clipboard (P6.1), thumbnails in the tree (P6.2), tab reordering.

@@ -303,7 +303,7 @@ phases:
         status: pending
         effort: 3
         depends_on: [P4.1]
-        why: "Outward-facing; owner deploys the site. Two changes needed in thedumbstuff-site api/downloads.py: accept the product fanout with electron-updater's latest*.yml feed (today it knows ContextWire only), and take a 107.6 MB installer (Cloudflare refuses requests over 100 MB, so uploads in parts). Until then no update can reach anyone. See docs/updates.md."
+        why: "Outward-facing; the owner deploys the site and publishes. Built 2026-11-16 (branch fanout-downloads of thedumbstuff-site, its roadmap P9): the site's downloads service takes fanout (fanout-setup-<v>.exe and its .blockmap, no .sig), writes current/latest.yml itself (naming ../<v>/fanout-setup-<v>.exe, so the older blockmap resolves), current/fanout-setup.exe and release.json, and takes files in parts (Cloudflare refuses requests over 100 MB). tools/release.mjs publish uploads in 16 MB parts, resumes a cut-off run and no longer uploads latest.yml. Proved against the site's preview: publish --yes resumed after 3 of 7 parts; electron-updater 6.8.11 downloaded 0.2.0 from the site's feed (SHA-512 passed) and, with 0.2.1 published too, fetched both blockmaps and only the 935 KB that changed. Left: (1) the site change merged and deployed; (2) node tools/release.mjs publish --yes for 0.2.0; (3) python tools/check_download.py (thedumbstuff-site) passes for fanout; (4) the README's download line. See docs/updates.md."
       - id: P4.4
         title: Signed installers
         status: blocked
@@ -323,9 +323,10 @@ phases:
         title: Release tool - build with notes from the changelog, local test feed, publish
         status: done
         effort: 2
-        why: publish speaks the site's protocol but the site does not take fanout yet (P4.3).
+        why: "publish uploads in 16 MB parts to the site's downloads service (resumable; a whole file already there is skipped; the site writes the feed), then publishes with that version's changelog notes. Works against the site's preview (2026-11-16); the live site needs the site change deployed first (P4.3)."
         checks:
           - {type: path, path: tools/release.mjs}
+          - {type: cmd, run: "npm test --silent"}
 
   - id: P5
     name: Proof with real accounts
