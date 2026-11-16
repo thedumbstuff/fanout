@@ -49,9 +49,20 @@
 
 ## Why
 
+The hard part of posting one video everywhere is not the posting. It is the juggling.
 Posting the same video to YouTube, LinkedIn, TikTok and the rest means a pile of
-browser tabs, and with more than one brand it means signing out and in again all day.
-fanout keeps each brand in its own compartment:
+browser tabs, and with more than one brand it means a browser or a profile per brand,
+or signing out and in again all day. Close it all, and next time you open every site
+again.
+
+The tools that post for you were no answer for us. The ones we looked at were
+expensive, charged by how much you use them, and came bundled with things we did not
+need, such as AI image and video generation.
+
+So fanout keeps each brand in its own compartment, and remembers it. Close fanout and
+open it tomorrow: each brand comes back as you left it, still signed in, with the same
+tabs, the same pages side by side, the tab you had on its own still in front of them,
+and the posted marks you set.
 
 - **Brands**, each with its own sign-ins. The same site can be signed in to a different
   account in every brand, and stays signed in.
