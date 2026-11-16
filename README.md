@@ -90,8 +90,16 @@ and the posted marks you set.
 - **It updates itself**, once downloads are on thedumbstuff.page: new versions download
   in the background and install when you restart or close it. (On macOS, until fanout
   is signed, it says a new version is out and opens the download page.)
-- **Tabs you are not using go to sleep** and give their memory back. A tab that is
-  uploading, playing sound or holding something you typed is left alone.
+- **Tabs you are not using go to sleep** and give their memory back: after 20 minutes
+  unused, or, when more than six are loaded, the least recently used first (both
+  settable). A sleeping tab keeps its address, title and icon and loads again when you
+  open it. A tab that is uploading, playing sound or holding something you typed is left
+  alone. Measured on one Windows 11 PC with six sites' front pages, signed out: fanout
+  with no tabs 317 MB, all six loaded 2,724 MB, one loaded and five asleep 1,036 MB about
+  40 seconds later ([memory](docs/memory.md) has the details). A loaded page costs what
+  the site makes it cost, about 170 to 340 MB for these, so four pages side by side are
+  four loaded pages. The status bar shows the live figure; in the screenshots it reads 2.4
+  to 3 GB, with five or six social sites loaded at once.
 
 fanout does not post for you. It never clicks, types or reads inside a page, because
 most platforms forbid automated activity. You upload by hand; fanout removes the
