@@ -56,7 +56,8 @@ open_decisions:
     default: MIT
   - id: D4
     title: Google sign-in inside fanout
-    status: open
+    status: resolved
+    outcome: "2026-11-16 (owner): signing in to Google (YouTube) inside fanout works. The cause of the refusal was the Chrome disguise 0.2.0 first shipped with; telling sites fanout's true user agent (Electron's own, unchanged) fixed it, confirmed by the owner's own sign-in. No fallback (system browser) needed. If Google ever refuses again: a decision, not another disguise."
     why: "2026-11-12: with the plain Chrome user agent (the disguise 0.2.0 shipped with), Google refused the owner's YouTube sign-in: 'Couldn't sign you in. This browser or app may not be secure.' Google's rules for accounts.google.com require a browser to identify itself in its user agent, forbid using another browser's (Chrome's), and forbid rewriting headers; other Electron apps fixed the same error by dropping their disguise. Changed: pages now get Electron's own user agent unchanged (fanout/0.2.0 Chrome/156 Electron/45.3.0), the same in headers and page JavaScript; Electron sends no Sec-CH-UA headers; a unit test forbids overrides. Stays open until the owner signs in. Google's rules also disallow sign-in from embedded frameworks, so it may still refuse; then: open that one sign-in in the system browser, or another fallback - not another disguise."
     blocks: [P5.1]
     default: keep fanout's own user agent; add a fallback only if the owner's sign-in still fails
@@ -334,10 +335,9 @@ phases:
     tasks:
       - id: P5.1
         title: Sign in to YouTube (Google), LinkedIn, TikTok, Instagram, Facebook, X inside fanout
-        status: blocked
+        status: in_progress
         effort: 2
-        decision: D4
-        why: "Needs the owner's accounts. Front pages of all six load. TikTok, Instagram and Facebook sign-in pages load; Google refused the YouTube sign-in while fanout claimed to be Chrome (2026-11-12). fanout now tells sites its own user agent; the owner's next sign-in attempt decides D4."
+        why: "YouTube (Google): works, confirmed by the owner's own sign-in on 2026-11-16 (Google had refused on 2026-11-12 while fanout claimed to be Chrome; the true user agent fixed it, D4). The others: the front pages of all six load, and the TikTok, Instagram and Facebook sign-in pages load (2026-11-12), but nobody has reported a completed sign-in on LinkedIn, TikTok, Instagram, Facebook or X yet. Done when the owner has signed in on each."
       - id: P5.2
         title: Drag a real video from the file panel onto a real upload page and post it
         status: pending

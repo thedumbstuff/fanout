@@ -172,14 +172,17 @@ HTTPS, and none left for example.com); page JavaScript reports `Not:A-Brand 8,
 Chromium 156`. fanout changes none of it, and a unit test fails if code that rewrites
 the user agent, request headers or Chromium switches comes back.
 
-Still unproven: a real Google sign-in. Google's rules also say sign-in from embedded
-browser frameworks is not allowed, and Electron is one, so an honest user agent may
-not be enough. If Google still refuses, the next step is a decision (roadmap D4), not
+It works: on 2026-11-16 the owner signed in to Google (YouTube) inside fanout with this
+user agent (roadmap D4, resolved). So the disguise was the cause. Google's rules also say
+sign-in from embedded browser frameworks is not allowed, and Electron is one; it did not
+refuse fanout for that. If Google ever refuses again, the next step is a decision, not
 another disguise.
 
 ## Not verified yet
 
-- Signing in to Google inside fanout (above).
+- Signing in to LinkedIn, TikTok, Instagram, Facebook and X inside fanout: their sign-in
+  pages load (TikTok, Instagram and Facebook seen on 2026-11-12), but nobody has reported a
+  completed sign-in on them yet (roadmap P5.1). Google (YouTube) works (above).
 - A real drop onto a real upload page. The drag is started with the same native call
   Explorer uses; the drop needs a person.
 - macOS and Linux. The code avoids platform assumptions but has only run on Windows 11.

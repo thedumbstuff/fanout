@@ -52,9 +52,10 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
 
 ## Open
 
-- Owner must sign in to real accounts and do a real drag-and-drop upload: roadmap P5.
-  Google refused sign-in while fanout claimed to be Chrome; the honest user agent is in,
-  a real Google sign-in is still unproven (D4).
+- Signing in to Google (YouTube) inside fanout works since the honest user agent (owner,
+  2026-11-16; D4 resolved: the Chrome disguise was the cause). Still open (roadmap P5): a
+  completed sign-in on the other platforms (their sign-in pages load; none reported yet)
+  and a real drag-and-drop upload.
 - macOS and Linux builds need CI (repo not pushed yet). Installers are unsigned.
 - Updates (`docs/updates.md`): the app side works, and `tools/release.mjs publish` uploads in
   parts to thedumbstuff-site's downloads service, which takes fanout since 2026-11-16 (its
