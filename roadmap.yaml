@@ -30,7 +30,7 @@
 
 project: fanout
 tagline: One window for every brand's social accounts - isolated sign-ins, tabs per brand, a file panel to drag uploads from
-updated: 2026-11-13
+updated: 2026-11-17
 
 open_decisions:
   - id: D1
@@ -301,10 +301,12 @@ phases:
           - {type: path, path: .github/workflows/build.yml}
       - id: P4.3
         title: Downloads on thedumbstuff.page and a page for fanout
-        status: pending
+        status: done
         effort: 3
         depends_on: [P4.1]
-        why: "Outward-facing; the owner deploys the site and publishes. Built 2026-11-16 (branch fanout-downloads of thedumbstuff-site, its roadmap P9): the site's downloads service takes fanout (fanout-setup-<v>.exe and its .blockmap, no .sig), writes current/latest.yml itself (naming ../<v>/fanout-setup-<v>.exe, so the older blockmap resolves), current/fanout-setup.exe and release.json, and takes files in parts (Cloudflare refuses requests over 100 MB). tools/release.mjs publish uploads in 16 MB parts, resumes a cut-off run and no longer uploads latest.yml. Proved against the site's preview: publish --yes resumed after 3 of 7 parts; electron-updater 6.8.11 downloaded 0.2.0 from the site's feed (SHA-512 passed) and, with 0.2.1 published too, fetched both blockmaps and only the 935 KB that changed. Left: (1) the site change merged and deployed; (2) node tools/release.mjs publish --yes for 0.2.0; (3) python tools/check_download.py (thedumbstuff-site) passes for fanout; (4) the README's download line. See docs/updates.md."
+        why: "Done 2026-11-17: fanout 0.2.0 is the first release on thedumbstuff.page. Built 2026-11-16 (thedumbstuff-site, its roadmap P9): the site's downloads service takes fanout (fanout-setup-<v>.exe and its .blockmap, no .sig) in parts (Cloudflare refuses requests over 100 MB), writes current/latest.yml itself (naming ../<v>/fanout-setup-<v>.exe, so the older blockmap resolves), current/fanout-setup.exe and release.json; tools/release.mjs publish uploads in 16 MB parts and resumes a cut-off run. Proved first against the site's preview: publish --yes resumed after 3 of 7 parts; electron-updater 6.8.11 downloaded 0.2.0 from the site's feed (SHA-512 passed) and, with 0.2.1 published too, fetched both blockmaps and only the 935 KB that changed. Then the owner deployed the site and node tools/release.mjs publish --yes published 0.2.0 (the build of 2026-11-13 20:44: the installer, 107.7 MB in 7 parts, and its .blockmap; the feed's releaseDate 2026-11-17T00:22:01Z). Seen live the same day: https://thedumbstuff.page/fanout/ answers; current/fanout-setup.exe answers with 112,898,811 bytes; latest.yml offers 0.2.0 with dist/latest.yml's SHA-512; python ../thedumbstuff-site/tools/check_download.py passed 22 of 22 (fanout's installer, size and SHA-256, feed SHA-512, versioned address, blockmap, and the buttons on its page). The README has the download line. That proof reads the live site and downloads every product's installer (about 200 MB), so it is not a check here: this watchtower re-runs checks every minute and must pass offline. Run it by hand; it is the site's P9.4 check. The check here is offline: the README's download link is the installer in the folder package.json's feed names (where installed copies update from), and it links fanout's page. Not seen yet: an installed fanout updating itself from the live feed (needs a second release); macOS and Linux (P4.2)."
+        checks:
+          - {type: cmd, run: 'node -e "const fs=require(`fs`);const feed=require(`./package.json`).build.publish[0].url;const r=fs.readFileSync(`README.md`,`utf8`);const ok=r.includes(`href=\x22${feed}fanout-setup.exe\x22`)&&r.includes(`href=\x22https://thedumbstuff.page/fanout/\x22`);console.log(ok?`README links ${feed}fanout-setup.exe and the fanout page`:`README has no download link into ${feed}`);process.exit(ok?0:1)"'}
       - id: P4.4
         title: Signed installers
         status: blocked
@@ -324,7 +326,7 @@ phases:
         title: Release tool - build with notes from the changelog, local test feed, publish
         status: done
         effort: 2
-        why: "publish uploads in 16 MB parts to the site's downloads service (resumable; a whole file already there is skipped; the site writes the feed), then publishes with that version's changelog notes. Works against the site's preview (2026-11-16); the live site needs the site change deployed first (P4.3)."
+        why: "publish uploads in 16 MB parts to the site's downloads service (resumable; a whole file already there is skipped; the site writes the feed), then publishes with that version's changelog notes. Works against the site's preview (2026-11-16) and the live site: it published 0.2.0 on 2026-11-17 (P4.3)."
         checks:
           - {type: path, path: tools/release.mjs}
           - {type: cmd, run: "npm test --silent"}
@@ -389,6 +391,6 @@ features:
   - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
   - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
   - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages; other tabs open on their own and leave the group alone (P2.10)"}
-  - {id: F11, title: Updates itself, source: own, area: other, status: building, task: P4.3, note: "App side done and proved locally; waits for the site to host the feed"}
+  - {id: F11, title: Updates itself, source: own, area: other, status: shipped, task: P4.3, note: "The feed is live on thedumbstuff.page since 0.2.0 (2026-11-17); proved locally and against the site's preview, a real update from the live feed waits for the second release"}
   - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "A picture for every row of the tree; the viewer (F12) already shows one file"}
   - {id: F12, title: Media viewer, source: own, area: workspace, status: shipped, task: P2.11, note: "Video, pictures and sound under the tree with the facts that matter for posting, and a larger view over the pages"}
