@@ -906,6 +906,17 @@ test('dropping a tab on an empty pane puts it there; a pane with a tab is not a 
   assert.deepEqual(empty.panes, [lone]);
 });
 
+test('a tab drag is pointer events only: never an HTML drag, which the pages under the pointer would be offered', () => {
+  const read = (file) => fs.readFileSync(path.join(import.meta.dirname, '..', 'src', 'renderer', file), 'utf8');
+  const drag = read('tabdrag.js');
+  assert.match(drag, /setPointerCapture/, 'the pointer is captured');
+  for (const [file, text] of [['tabdrag.js', drag], ['app.js', read('app.js')]]) {
+    assert.doesNotMatch(text, /dataTransfer|draggable\s*[:=]\s*true|\.draggable\s*=|startDrag/, file);
+  }
+  assert.match(drag, /\['tabstrip', 'page'\]\) \$\(id\)\.addEventListener\('dragstart', \(e\) => e\.preventDefault\(\)\)/,
+    'the system drag a favicon (an image) would start is stopped in the strip and the page area');
+});
+
 test('a drop target from the interface is rebuilt from its parts, or refused', () => {
   const id = 't_0123456789';
   assert.deepEqual(cleanDropTarget({ on: 'tab', tabId: id, after: true, extra: 1 }), { on: 'tab', tabId: id, after: true });

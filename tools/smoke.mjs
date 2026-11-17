@@ -54,10 +54,14 @@ async function until(test, label, ms = 15000) {
 const PAGES = {
   '/a': '<title>Site A</title><body style="font:20px sans-serif;padding:40px;background:#dff"><h1>Site A upload page</h1><a id="l" href="/b" target="_blank">open B in a new tab</a>',
   '/b': '<title>Site B</title><body style="font:20px sans-serif;padding:40px;background:#fdf"><h1>Site B</h1>',
+  // Pages for the tab drags: one address each, so a page tells which tab it is.
+  ...Object.fromEntries(['c', 'd', 'e', 'f', 'g', 'h'].map((x) => [`/${x}`,
+    `<title>Site ${x.toUpperCase()}</title><body style="font:20px sans-serif;padding:40px;background:#ffd"><h1>Site ${x.toUpperCase()}</h1>`])),
   '/draft': `<title>Draft</title><body style="margin:0"><textarea id="t" style="width:100vw;height:100vh"></textarea>
     <script>t.addEventListener('input', () => { window.onbeforeunload = (e) => { e.preventDefault(); return 'x'; }; });</script>`,
 };
 
+const ICON = fs.readFileSync(path.join(ROOT, 'build', 'icon.png'));
 const requested = []; // every path the test server was asked for
 const received = new Map(); // path -> the request headers it last came with
 
@@ -71,6 +75,12 @@ function serve() {
       if (pathname === '/refuse') {
         res.writeHead(403);
         return res.end();
+      }
+      // A real icon, as every site has: a tab then shows it as a picture, and
+      // a picture is what a system drag would start from.
+      if (pathname === '/favicon.ico') {
+        res.writeHead(200, { 'content-type': 'image/png' });
+        return res.end(ICON);
       }
       const body = PAGES[pathname];
       res.writeHead(body ? 200 : 404, { 'content-type': 'text/html; charset=utf-8' });
@@ -658,28 +668,14 @@ async function run(ctx) {
     await dom(`Boolean(document.querySelector('#tab-rest [data-id="${replaced.id}"]'))`), putLabel);
   menuItem(fifth, 'Take out of the group').click();
   await wait(300);
-  const emptied = together.panes[3] === null && together.tabs.some((tab) => tab.id === fifth) &&
-    await dom(`document.querySelector('#page .pane[data-index="3"] h1')?.textContent === 'Nothing here yet.'`);
+  const shrunk = together.panes.join() === groupIds.slice(0, 3).join() && together.tabs.some((tab) => tab.id === fifth) &&
+    (await screen()).boxes.join() === groupIds.slice(0, 3).join();
   const putBack = menuItem(replaced.id, 'Put in the group');
   const putBackLabel = putBack?.label;
   putBack?.click();
   await wait(300);
-  check('Take out of the group empties its pane; the next tab put in goes there, replacing nothing',
-    emptied && putBackLabel === 'Put in the group' && together.panes.join() === groupIds.join(), putBackLabel);
-
-  // "Open a new tab here" in an empty pane is a request for that pane.
-  menuItem(groupIds[1], 'Take out of the group').click();
-  await wait(300);
-  await dom(`document.querySelector('#page .pane[data-index="1"] .page-note .primary').click()`);
-  await until(() => together.panes[1] && !groupIds.includes(together.panes[1]), 'a new tab in pane 2');
-  const here = together.panes[1];
-  await wait(300);
-  const inPane = together.solo === null && together.focus === 1 && together.activeTabId === here &&
-    await dom(`document.querySelector('#page .pane[data-index="1"] h1')?.textContent === 'Where does Together post?'`);
-  menuItem(groupIds[1], 'Put in the group').click();
-  await wait(300);
-  check('Open a new tab here puts the tab in that pane; a blank tab pushed out of the group is removed',
-    inPane && together.panes.join() === groupIds.join() && !together.tabs.some((tab) => tab.id === here), here);
+  check('Take out of the group takes its pane away; the next tab put in gets a new pane at the end, replacing nothing',
+    shrunk && putBackLabel === 'Put in the group' && together.panes.join() === groupIds.join() && together.focus === 3, putBackLabel);
 
   // Memory: the solo tab is on screen; the group behind it is not.
   await bridge('selectTab', plus);
@@ -719,6 +715,253 @@ async function run(ctx) {
   await bridge('createBrand', { name: 'Apart', color: '#18a36b', folder: '', together: false, urls: [`${site}/a`, `${site}/b`] });
   check('separate tabs: one page on screen', ctx.store.data.brands[1].panes.length === 1);
   await ctx.deleteBrand(ctx.store.data.brands[1].id, { ask: false });
+
+  // ---- dragging tabs in the tab strip
+  // Real pointer input sent to fanout's own interface (never to a page): press,
+  // move in steps, look at what the interface shows, let go. The interface keeps
+  // drawing while the owner's other windows cover it (a crowded strip scrolls on
+  // animation frames; see gotchas, "A covered window pauses a silent video").
+  ui.setBackgroundThrottling(false);
+  const site6 = ['a', 'b', 'c', 'd', 'e', 'f'].map((x) => `${site}/${x}`);
+  await bridge('createBrand', { name: 'Drag', color: '#2f6fed', folder: '', together: false, urls: site6 });
+  const dragged = ctx.store.data.brands[1];
+  const [A, B, C, D, E, F] = dragged.tabs.map((tab) => tab.id);
+  const letter = Object.fromEntries(dragged.tabs.map((tab, i) => [tab.id, 'ABCDEF'[i]]));
+  const order = () => dragged.panes.map((id) => letter[id] ?? (id ? '+' : '_')).join('');
+  // Each tab shown once, so each has its page's icon (a picture) in the strip; then A again.
+  for (const id of [B, C, D, E, F, A]) {
+    await bridge('selectTab', id);
+    await until(() => idle({ id }), `tab ${letter[id]} loaded`);
+  }
+  await until(() => dom(`document.querySelectorAll('#tabs img.favicon').length === 6`), 'six icons in the strip', 5000);
+  await dom(`window.__drags = { started: 0, allowed: 0 };
+    addEventListener('dragstart', (e) => { __drags.started += 1; if (!e.defaultPrevented) __drags.allowed += 1; })`);
+
+  const centre = (selector, fx = 0.5, fy = 0.5) => dom(`(() => {
+    const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+    return { x: Math.round(r.x + r.width * ${fx}), y: Math.round(r.y + r.height * ${fy}) }; })()`);
+  const onTabAt = (id, fx = 0.5) => centre(`#tabs .tab[data-id="${id}"]`, fx);
+  const press = ({ x, y }, button = 'left', clickCount = 1) => {
+    ui.sendInputEvent({ type: 'mouseMove', x, y });
+    ui.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount });
+  };
+  const letGo = ({ x, y }, button = 'left', clickCount = 1) => ui.sendInputEvent({ type: 'mouseUp', x, y, button, clickCount });
+  const click = async (at, button = 'left') => {
+    press(at, button);
+    letGo(at, button);
+    await wait(400);
+  };
+  /** What the interface shows of a drag going on. */
+  const look = () => dom(`(() => {
+    const outline = document.getElementById('tab-group');
+    return {
+      dragging: document.body.classList.contains('is-dragging-tab'),
+      refused: document.body.classList.contains('is-drop-refused'),
+      lifted: document.querySelector('#tabs .tab.is-lifted')?.dataset.id ?? null,
+      says: document.querySelector('.tab-ghost-does')?.textContent ?? null,
+      marker: Boolean(document.querySelector('.drop-marker:not([hidden])')),
+      outline: ['is-drop-zone', 'is-drop-target', 'is-refused'].filter((c) => outline.classList.contains(c)).join(),
+      target: document.querySelector('#tabs .tab.is-drop-target')?.dataset.id ?? null,
+      pane: document.querySelector('#page .pane.is-drop-target')?.dataset.index ?? null,
+    }; })()`);
+  /** Press at `from`, move to `to` in steps, look, then (unless `hold`) let go there. */
+  const drag = async (from, to, { hold = false, during } = {}) => {
+    press(from);
+    for (let i = 1; i <= 10; i += 1) {
+      const x = Math.round(from.x + ((to.x - from.x) * i) / 10);
+      const y = Math.round(from.y + ((to.y - from.y) * i) / 10);
+      ui.sendInputEvent({ type: 'mouseMove', x, y, modifiers: ['leftbuttondown'] });
+      await wait(15);
+    }
+    await wait(250); // the main process's answer about the place under the pointer
+    if (during) await during();
+    const seen = await look();
+    if (!hold) {
+      letGo(to);
+      await wait(400);
+    }
+    return seen;
+  };
+  /** Each page on the window sits exactly on the box of the pane its tab is in. */
+  const aligned = async () => {
+    await wait(300);
+    const zoom = ui.getZoomFactor();
+    const boxes = await dom(`Object.fromEntries([...document.querySelectorAll('#page .pane')].map((p) => {
+      const r = p.querySelector('.pane-body').getBoundingClientRect(); return [p.dataset.tab, [r.x, r.y, r.width, r.height]]; }))`);
+    const views = attached();
+    const placed = views.filter((view) => {
+      const tab = dragged.tabs.find((t) => t.url === view.webContents.getURL());
+      const box = tab && boxes[tab.id];
+      const { x, y, width, height } = view.getBounds();
+      return box && [x, y, width, height].every((n, i) => Math.abs(n - Math.round(box[i] * zoom)) <= 1);
+    });
+    const shown = onScreenIds(dragged).filter((id) => dragged.tabs.find((t) => t.id === id)?.url);
+    return placed.length === views.length && views.length === shown.length;
+  };
+  const onScreenIds = (b) => (b.solo ? [b.solo] : b.panes.filter(Boolean));
+
+  // No group yet: B dropped on C's left half, pressed on B's icon.
+  const pairSeen = await drag(await centre(`#tabs .tab[data-id="${B}"] img.favicon`), await onTabAt(C, 0.25));
+  await until(() => attached().length === 2, 'two pages side by side');
+  const pairShown = await screen();
+  check('a tab dropped on another makes a group of two side by side, the dragged one first (left half), its pane focused',
+    order() === 'BC' && dragged.focus === 0 && dragged.activeTabId === B && pairShown.grouped === 2 &&
+    pairSeen.dragging && pairSeen.lifted === B && pairSeen.target === C && pairSeen.marker && pairSeen.says === 'Side by side' &&
+    await aligned(), `${order()} ${JSON.stringify(pairSeen)}`);
+  const drags = await dom('window.__drags');
+  check('pressing on a tab\'s icon and dragging starts no system drag, so nothing reaches a page', drags.allowed === 0,
+    `${drags.started} drag start(s), ${drags.allowed} not stopped`);
+  await shot('11-drag-pair');
+
+  // D onto the outline's own space, past its last tab. Its tab is drawn anew mid-drag (its name
+  // changes, as when a title arrives or a page starts loading): the drag must not lose it.
+  const outlineEnd = await centre('#tab-group', 0.995);
+  const joinSeen = await drag(await onTabAt(D), outlineEnd, {
+    during: async () => {
+      await dom(`document.querySelector('#tabs .tab[data-id="${D}"]').__before = true`);
+      await bridge('renameTab', D, 'Dee');
+      await until(() => dom(`!document.querySelector('#tabs .tab[data-id="${D}"]').__before`), 'D redrawn', 3000);
+    },
+  });
+  const redrawn = await dom(`document.querySelector('#tabs .tab[data-id="${D}"]').__before === undefined`);
+  await bridge('renameTab', D, '');
+  await until(() => attached().length === 3, 'three pages');
+  check('a tab dropped on the group\'s outline joins at its end; the drag survives the tab being redrawn under it',
+    order() === 'BCD' && dragged.focus === 2 && joinSeen.lifted === D && joinSeen.outline.includes('is-drop-target') &&
+    joinSeen.says === 'Add to the group' && redrawn && await aligned(), `${order()} ${JSON.stringify(joinSeen)}`);
+
+  // A, the tab outside, onto B's left half: four. While it is dragged the outline says it is the place.
+  const fourSeen = await drag(await onTabAt(A), await onTabAt(B, 0.2));
+  await until(() => attached().length === 4, 'four pages');
+  check('a third tab dropped on a tab of the group joins before it: four pages',
+    order() === 'ABCD' && dragged.focus === 0 && fourSeen.outline.includes('is-drop-zone') && fourSeen.marker &&
+    await aligned(), `${order()} ${JSON.stringify(fourSeen)}`);
+  await shot('12-drag-four');
+
+  // A fifth: refused, said while hovering and after letting go.
+  const fullSeen = await drag(await onTabAt(E), await onTabAt(C, 0.7));
+  const said = await dom(`document.getElementById('note').textContent`);
+  check('a fifth tab is refused: the outline and the pointer say so while it hovers, the status bar says why after',
+    order() === 'ABCD' && dragged.tabs.length === 6 && fullSeen.refused && fullSeen.outline.includes('is-refused') &&
+    !fullSeen.marker && fullSeen.says.includes('four') && said.includes('four pages'), `${JSON.stringify(fullSeen)} ${said}`);
+  await shot('13-drag-full');
+
+  // Inside the group: A after D.
+  const moveSeen = await drag(await onTabAt(A), await onTabAt(D, 0.8));
+  check('a tab of the group dropped inside it moves there; the panes reorder',
+    order() === 'BCDA' && dragged.focus === 3 && dragged.activeTabId === A && moveSeen.says === 'Move here' && await aligned(),
+    `${order()} ${JSON.stringify(moveSeen)}`);
+  const kept = order();
+  await drag(await onTabAt(C), await onTabAt(D, 0.2));
+  check('dropped where it already is, nothing changes', order() === kept, order());
+
+  // Out of the group, onto the strip beyond its outline.
+  const outSeen = await drag(await onTabAt(C), await onTabAt(F, 0.5));
+  await until(() => attached().length === 3, 'three pages again');
+  check('a tab of the group dropped outside its outline leaves it, taking its pane: four become three',
+    order() === 'BDA' && dragged.tabs.some((tab) => tab.id === C) && outSeen.says === 'Take out of the group' &&
+    await dom(`Boolean(document.querySelector('#tab-rest [data-id="${C}"]'))`) && await aligned(), `${order()} ${JSON.stringify(outSeen)}`);
+
+  // Escape: no drop, and letting go over a tab afterwards is no click on it.
+  const before = JSON.stringify([dragged.panes, dragged.focus, dragged.solo]);
+  await drag(await onTabAt(D), await onTabAt(E), { hold: true });
+  ui.focus(); // pressing on the strip gives the interface the keyboard; here the last drop gave it to a page
+  ui.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  ui.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  await wait(150);
+  const cancelled = await look();
+  letGo(await onTabAt(E));
+  await wait(400);
+  check('Escape cancels a drag: nothing changes, and letting go over a tab does not select it',
+    JSON.stringify([dragged.panes, dragged.focus, dragged.solo]) === before && !cancelled.dragging && !cancelled.lifted &&
+    dragged.activeTabId !== E, `${order()} ${JSON.stringify(cancelled)}`);
+
+  // An outside tab onto another outside tab while there is a group: not a drop.
+  const strayOrder = order();
+  const straySeen = await drag(await onTabAt(E), await onTabAt(F, 0.3));
+  check('a tab outside the group dropped on another outside it changes nothing; the outline shows where to drop instead',
+    order() === strayOrder && dragged.solo === null && !straySeen.marker && straySeen.target === null &&
+    straySeen.outline.includes('is-drop-zone'), JSON.stringify(straySeen));
+
+  // Ordinary clicks still do what they did: a click selects, a middle click closes, a double click renames.
+  await click(await onTabAt(F));
+  const clicked = dragged.solo === F && dragged.activeTabId === F;
+  await click(await onTabAt(E), 'middle');
+  await until(() => !dragged.tabs.some((tab) => tab.id === E), 'E closed', 3000);
+  const middle = !dragged.tabs.some((tab) => tab.id === E);
+  const nameAt = await onTabAt(C);
+  await click(nameAt);
+  press(nameAt, 'left', 2);
+  letGo(nameAt, 'left', 2);
+  await wait(300);
+  const renaming = await dom(`Boolean(document.querySelector('#tabs .tab-rename'))`);
+  const duringRename = order();
+  await drag(nameAt, await onTabAt(B, 0.3));
+  const noDrag = order() === duringRename && await dom(`Boolean(document.querySelector('#tabs .tab-rename'))`);
+  await dom(`document.querySelector('#tabs .tab-rename').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  await wait(200);
+  check('after all that, a click still selects, a middle click still closes, a double click still renames, and no drag starts while renaming',
+    clicked && middle && renaming && noDrag && dragged.tabs.find((tab) => tab.id === C)?.name === '',
+    `${clicked} ${middle} ${renaming} ${noDrag}`);
+
+  // Closing a tab of the group takes its pane with it.
+  await bridge('selectTab', B);
+  await bridge('closeTab', D);
+  await until(() => !dragged.tabs.some((tab) => tab.id === D), 'D closed');
+  await until(() => attached().length === 2, 'two pages');
+  check('closing a tab of the group takes its pane away: three become two', order() === 'BA' && await aligned(), order());
+
+  // ---- empty panes: a layout button with more panes than tabs
+  for (const id of [C, F]) await bridge('closeTab', id);
+  await until(() => dragged.tabs.length === 2, 'two tabs left');
+  await bridge('setLayout', dragged.id, { count: 3 });
+  await wait(400);
+  const emptyNote = await dom(`document.querySelector('#page .pane[data-index="2"] .page-note p')?.textContent ?? ''`);
+  check('an empty pane says a tab can be dragged there, and offers a new tab', order() === 'BA_' &&
+    emptyNote.startsWith('Drag a tab here') &&
+    await dom(`document.querySelector('#page .pane[data-index="2"] .page-note .primary')?.textContent === 'Open a new tab here'`), emptyNote);
+  await dom(`document.querySelector('#page .pane[data-index="2"] .page-note .primary').click()`);
+  await until(() => dragged.panes[2], 'a new tab in pane 3');
+  const here = dragged.panes[2];
+  await wait(300);
+  const inPane = dragged.solo === null && dragged.focus === 2 && dragged.activeTabId === here &&
+    await dom(`document.querySelector('#page .pane[data-index="2"] h1')?.textContent === 'Where does Drag post?'`);
+  await bridge('closeTab', here);
+  await wait(300);
+  check('Open a new tab here puts a new tab in that pane; closing it takes the pane away', inPane && order() === 'BA', order());
+
+  await bridge('setLayout', dragged.id, { count: 3 });
+  const G = ctx.tabs.open(dragged.id, { url: `${site}/g`, background: true }).id; // in the strip, not loaded
+  letter[G] = 'G';
+  await wait(400);
+  const paneSeen = await drag(await onTabAt(G), await centre('#page .pane[data-index="2"] .pane-body'));
+  await until(() => attached().length === 3, 'three pages');
+  check('a tab dropped on an empty pane goes into that pane; the pane shows it is the place while the tab is over it',
+    order() === 'BAG' && dragged.focus === 2 && paneSeen.pane === '2' && paneSeen.says === 'Show it in this pane' &&
+    await aligned(), `${order()} ${JSON.stringify(paneSeen)}`);
+  await shot('14-drag-pane');
+
+  // ---- a crowded strip scrolls while a tab is held at its end, and the drag goes on
+  for (let i = 0; i < 16; i += 1) ctx.tabs.open(dragged.id, { url: `${site}/h?${i}`, background: true });
+  await wait(500);
+  // Measured now: a strip with room to spare ends where its last tab ends, a crowded one at the + button.
+  const strip = await dom(`(() => { const t = document.getElementById('tabs'); const r = t.getBoundingClientRect();
+    return { right: Math.round(r.right), y: Math.round(r.y + r.height / 2), over: t.scrollWidth - t.clientWidth }; })()`);
+  const end = { x: strip.right - 6, y: strip.y };
+  await drag(await onTabAt(B), end, { hold: true });
+  await wait(700);
+  const scrolled = await dom(`document.getElementById('tabs').scrollLeft`);
+  const frame = await dom(`new Promise((done) => { requestAnimationFrame(() => done('drawing')); setTimeout(() => done('no frame in 300 ms'), 300); })`);
+  letGo(end);
+  await wait(400);
+  check('a strip too crowded to show every tab scrolls while a dragged tab is held at its end; letting go there takes it out',
+    strip.over > 50 && scrolled > 0 && order() === 'AG',
+    `${strip.over}px hidden, held at x ${end.x} of ${strip.right}, scrolled ${scrolled}px, ${order()}, window ${frame}`);
+  check('no drag left anything behind: no label, marker, look or listener of a drag',
+    await dom(`!document.querySelector('.tab-ghost, .drop-marker, .is-lifted, .is-drop-target, .is-drop-zone, #tab-group.is-refused') &&
+      !document.body.classList.contains('is-dragging-tab')`));
+  ui.setBackgroundThrottling(true);
+  await ctx.deleteBrand(dragged.id, { ask: false });
   await bridge('selectBrand', brand().id);
 
   // ---- new tabs: named by their page, not by a rename box left as it was
