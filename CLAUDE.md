@@ -63,7 +63,9 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
 - An installed fanout updating itself from the live feed has not been seen yet: 0.2.0, the
   first release on thedumbstuff.page (2026-11-17), is the only one there, so it waits for the
   second (`docs/updates.md`, "Publishing a release").
-- fanout 0.2.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-12).
+- fanout 0.3.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-17,
+  from `dist\fanout-setup-0.3.0.exe`). It is not published: thedumbstuff.page still offers
+  0.2.0, and publishing 0.3.0 waits for the owner's go-ahead.
 - Dragging tabs into, inside and out of the group (0.3.0, roadmap P2.12) is checked by the
   smoke test with pointer input sent to fanout's own interface; nobody has tried it with a
   real mouse yet, and the owner has not seen it.
