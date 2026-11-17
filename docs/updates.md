@@ -101,41 +101,43 @@ blockmaps (both answered), planned 48 changed blocks (935 KB of 110 MB) and, fro
 that answers ranges, fetched only those; the result passed the SHA-512 check. The live site
 answers multi-range requests through Cloudflare (seen on ContextWire's installer).
 
-**Before the first publish** the site change has to be deployed (thedumbstuff-site,
-roadmap P9; the owner pushes and runs the Jenkins job). Until then the site answers the
-parts requests "not found" and `publish --yes` stops at the first one, having sent nothing.
-The steps, with how to see that the live site has the new code and what to do if an upload is
-cut off: thedumbstuff-site `docs/installer.md`, "Publishing fanout".
+### Publishing a release
 
-**After the first publish** (roadmap P4.3):
+On the PC that publishes, in PowerShell (the token as above; nothing is sent before `--yes`):
 
-1. `python tools/check_download.py` in thedumbstuff-site: fanout's checks pass (its installer,
-   size, SHA-256 and SHA-512, the feed, the versioned address, the blockmap, and the buttons on
-   its page) instead of the "SKIP fanout" lines.
-2. README, the lines under the tagline. Replace
+```powershell
+curl.exe -s https://thedumbstuff.page/api/downloads/healthz       # ok: the downloads service answers
+cd C:\Shwetank\Work\Workspace\Python\opensource\fanout
+Remove-Item Env:FANOUT_SITE -ErrorAction SilentlyContinue         # the real site, not a preview
+node tools/release.mjs publish                                     # what would be sent, and where
+node tools/release.mjs publish --yes
+#   fanout-setup-<v>.exe: part 1 of 7 ... uploaded, sha256 ...
+#   published <v> for windows: https://thedumbstuff.page/downloads/fanout/current/latest.yml
+```
 
-   ```html
-   <p align="center">
-     No download yet: for now the Windows installer is built from the source (<a href="#build-an-installer">below</a>).
-     Downloads on <a href="https://thedumbstuff.page/">thedumbstuff.page</a> are coming. macOS and Linux are untested.
-   </p>
-   ```
+Then check the live site (read-only):
 
-   with
+```powershell
+cd C:\Shwetank\Work\Workspace\Python\opensource\thedumbstuff-site
+python tools/check_download.py      # every product: fanout's installer (a program, its size and SHA-256),
+                                    # the feed (its SHA-512, the versioned address, the blockmap) and
+                                    # the buttons on its page; 0 failed
+curl.exe -s https://thedumbstuff.page/downloads/fanout/current/latest.yml   # the new version; its sha512 is dist\latest.yml's
+```
 
-   ```html
-   <p align="center">
-     <b><a href="https://thedumbstuff.page/downloads/fanout/current/fanout-setup.exe">Download for Windows</a></b>
-     (Windows 10 and 11, 64-bit) from <a href="https://thedumbstuff.page/fanout/">thedumbstuff.page</a>; it updates itself.
-     macOS and Linux are untested: build them from the source (<a href="#build-an-installer">below</a>).
-   </p>
-   ```
+If an upload is cut off, or the site refuses it: thedumbstuff-site `docs/installer.md`,
+"Publishing fanout".
 
-   and in the feature list replace "**It updates itself**, once downloads are on
-   thedumbstuff.page: new versions download" with "**It updates itself**: new versions
-   download".
-3. roadmap.yaml: P4.3 done, with the check `python ../thedumbstuff-site/tools/check_download.py`;
-   feature F11 shipped.
+**The first release, 0.2.0, was published on 2026-11-17** (the feed's `releaseDate`
+2026-11-17T00:22:01Z), once the site's change was deployed (thedumbstuff-site roadmap P9.4).
+`node tools/release.mjs publish --yes` uploaded `fanout-setup-0.2.0.exe` (107.7 MB, 7 parts) and
+its `.blockmap` and ended with "published 0.2.0 for windows". It is the build of 2026-11-13 20:44,
+the same one installed on the owner's PC. Seen on the live site the same day: `release.json` lists
+Windows 0.2.0 (SHA-256 4d81fa767189...), `current/fanout-setup.exe` answers with 112,898,811
+bytes, `current/latest.yml` offers 0.2.0 with the SHA-512 of `dist/latest.yml`, and
+`check_download.py` passed 22 of 22 (fanout's five file and feed checks and three page checks
+among them). Not seen yet: an installed fanout updating itself from the live feed (that needs a
+second release), and macOS or Linux.
 
 ## Testing an update on one PC (done 2026-11-12)
 

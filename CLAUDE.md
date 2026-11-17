@@ -36,6 +36,7 @@ npm run measure                # memory on six real sites; takes about 2 minutes
 npm run screenshots            # README pictures from the real app (sample data); opens a window, about 2 minutes
 node node_modules/electron/cli.js tools/media-formats.mjs   # which formats the viewer shows here
 node tools/release.mjs build   # installer + update feed in dist/ (notes from docs/changelog.md)
+node tools/release.mjs publish # to thedumbstuff.page; sends only with --yes (docs/updates.md)
 python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal)
 ```
 
@@ -59,8 +60,8 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
 - The repository is public: https://github.com/thedumbstuff/fanout (owner, 2026-11-16).
 - macOS and Linux builds come from CI (`.github/workflows/build.yml`; its first run, on
   9f6f567, built all three) and are untested. Installers are unsigned.
-- Updates (`docs/updates.md`): the app side works, and `tools/release.mjs publish` uploads in
-  parts to thedumbstuff-site's downloads service, which takes fanout since 2026-11-16 (its
-  branch fanout-downloads); nothing is published until that is deployed (roadmap P4.3).
+- An installed fanout updating itself from the live feed has not been seen yet: 0.2.0, the
+  first release on thedumbstuff.page (2026-11-17), is the only one there, so it waits for the
+  second (`docs/updates.md`, "Publishing a release").
 - fanout 0.2.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-12).
 - Later: caption clipboard (P6.1), thumbnails in the tree (P6.2), tab reordering.
