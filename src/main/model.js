@@ -200,8 +200,8 @@ function ratio(value) {
 //   |C|D|                  | |C|
 //   +-+-+                  +-+-+
 //
-// Empty panes come only from the layout buttons (more panes than tabs) or a
-// brand added with more pages than tabs. With one pane there is no group:
+// Empty panes come only from the layout buttons (more panes than tabs; a
+// brand added side by side gets as many panes as tabs). With one pane there is no group:
 // selecting a tab puts it in that pane, as in a browser, and `solo` stays null.
 //
 // `splitX` and `splitY` are where the two dividers sit. `focus` is the pane

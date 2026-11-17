@@ -85,8 +85,8 @@ up side by side. Only the person changes it:
   out or closed, as in every browser that tiles tabs: four become three, three become
   two, and a group left with one tab is no group, one pane showing that tab (or the solo
   tab, if one was in front: it is what the person is looking at). Closing the solo tab
-  brings the group back. Empty panes come only from the layout buttons, or from a brand
-  added with more pages than tabs.
+  brings the group back. Empty panes come only from the layout buttons, when they ask
+  for more panes than there are tabs (a brand added side by side gets one pane per tab).
 - The lit layout button is the number of pages on screen: "one page" while a tab is on
   its own, and choosing it then changes nothing, so a stray click cannot undo the group.
   The group's own size carries a dashed mark. Two to four bring the group back at that
