@@ -39,6 +39,7 @@ export class TabManager {
   #crashed = new Set();
   #attached = new Set(); // tabIds whose views are in the window right now
   #bounds = []; // one rectangle per pane, as the interface laid them out
+  #layout = ''; // what the page area showed when last presented: brand, onScreen, dividers
   #covered = false; // a dialog of the interface is open over the page
   #sweeper;
   #disposed = false;
@@ -464,7 +465,12 @@ export class TabManager {
     }
     this.#place();
     if (focus && wanted.has(brand.activeTabId)) this.#live.get(brand.activeTabId).contents.focus();
-    this.#changed();
+    // Pages attached for a new layout sit at their old rectangles until the
+    // interface has measured the new boxes: tell it at once (see ctx.changed).
+    const layout = JSON.stringify(brand ? [brand.id, onScreen(brand), brand.splitX, brand.splitY] : null);
+    const moved = layout !== this.#layout;
+    this.#layout = layout;
+    this.#changed(moved);
   }
 
   /** Put each attached view on its rectangle; the interface reports them in onScreen order. */

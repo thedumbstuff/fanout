@@ -42,7 +42,7 @@ import { siteName } from './urls.js';
  * @property {MediaServer} media                       the viewer's files (fanout-media:)
  * @property {Electron.NativeImage} dragIcon
  * @property {() => object} snapshot                  the state the interface draws
- * @property {() => void} changed                     send that state soon
+ * @property {(now?: boolean) => void} changed       send that state soon (now: at once)
  * @property {(channel: string, ...args: any[]) => void} send
  * @property {(brandId: string, options?: {ask?: boolean}) => Promise<boolean>} deleteBrand
  * @property {Updates} updates
@@ -98,11 +98,21 @@ async function boot() {
   };
 
   let pushTimer = null;
-  ctx.changed = () => {
-    pushTimer ??= setTimeout(() => {
-      pushTimer = null;
-      ctx.send('state', ctx.snapshot());
-    }, PUSH_MS);
+  const push = () => {
+    pushTimer = null;
+    ctx.send('state', ctx.snapshot());
+  };
+  // `now`: what the page area shows has changed (other panes, another brand).
+  // The pages are already attached and wait for the interface to measure the
+  // new boxes; every millisecond until then a page sits at its old place, over
+  // its neighbour's pane. So that state goes out at once, not after PUSH_MS.
+  ctx.changed = (now = false) => {
+    if (now) {
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(push, 0);
+    } else {
+      pushTimer ??= setTimeout(push, PUSH_MS);
+    }
   };
 
   ctx.tabs = new TabManager({

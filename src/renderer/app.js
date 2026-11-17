@@ -355,6 +355,8 @@ function renderPanes() {
     for (const old of page.querySelectorAll('.pane')) old.remove();
     page.prepend(...tabs.map((tab, index) => paneElement(brand, tab, index, tabs.length)));
     tabDrag.paint();
+    // New boxes: their pages are attached already and wait for these rectangles.
+    reportBounds({ now: true });
   }
   reportBounds();
 }
@@ -467,16 +469,23 @@ function renderLayouts() {
 
 let boundsQueued = false;
 
-/** Tell the main process where each pane's page goes. At most once per frame. */
-function reportBounds() {
+const paneRects = () => [...$('page').querySelectorAll('.pane-body')].map((body) => {
+  const { x, y, width, height } = body.getBoundingClientRect();
+  return { x, y, width, height };
+});
+
+/**
+ * Tell the main process where each pane's page goes. At most once per frame,
+ * or `now` when the boxes were just rebuilt: until then the pages sit at the
+ * old layout's rectangles, over each other's panes.
+ */
+function reportBounds({ now = false } = {}) {
+  if (now) return api.setPageBounds(paneRects());
   if (boundsQueued) return;
   boundsQueued = true;
   requestAnimationFrame(() => {
     boundsQueued = false;
-    api.setPageBounds([...$('page').querySelectorAll('.pane-body')].map((body) => {
-      const { x, y, width, height } = body.getBoundingClientRect();
-      return { x, y, width, height };
-    }));
+    api.setPageBounds(paneRects());
   });
 }
 
