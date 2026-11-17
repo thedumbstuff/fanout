@@ -204,7 +204,7 @@ phases:
         checks:
           - {type: cmd, run: "npm test --silent"}
       - id: P2.6
-        title: End-to-end smoke test of the real app (77 checks, run by hand - it opens a window)
+        title: End-to-end smoke test of the real app (93 checks, run by hand - it opens a window)
         status: done
         effort: 3
         depends_on: [P2.3, P2.4]
@@ -229,7 +229,7 @@ phases:
           - {type: cmd, run: "npm test --silent"}
 
       - id: P2.10
-        title: The group stays as arranged - a tab outside it opens on its own in front of it (remembered per brand), the tab menu puts a tab in the group or takes it out, closing a group tab leaves its pane empty, Ctrl+Tab follows the tab strip
+        title: The group stays as arranged - a tab outside it opens on its own in front of it (remembered per brand), the tab menu puts a tab in the group or takes it out, closing a group tab leaves its pane empty (until 0.3.0, P2.12 - now the pane goes), Ctrl+Tab follows the tab strip
         status: done
         effort: 3
         depends_on: [P2.7, P2.8]
@@ -248,6 +248,18 @@ phases:
           - {type: path, path: src/renderer/viewer.js}
           - {type: path, path: tools/media-formats.mjs}
           - {type: cmd, run: "npm test --silent"}
+
+      - id: P2.12
+        title: Drag tabs into a group (0.3.0) - onto another tab makes two side by side, onto the group adds it (four at most, a fifth refused and said why), inside the group moves it, out of it takes it out, onto an empty pane puts it there; a tab leaving the group takes its pane (dragged out, taken out, closed) and a group of one ends; Put in the group adds a pane before it replaces a tab
+        status: done
+        effort: 3
+        depends_on: [P2.10]
+        why: "Owner asked 2026-11-17: 'user drag the tab of browser to another tab make it the group, split into two. When a group has two and user drag another then 3 split into 3 similarly for 4'. The rules are plain functions in model.js (planDrop, dropTab, cleanDropTarget); the interface only works out what the pointer is over (renderer/tabdrag.js, targetAt) and asks the main process what a drop there does. Pointer events with capture on the strip, never an HTML drag (a unit test guards it; a press on a favicon did start a system drag in the smoke test, and it was stopped). Found on the way and fixed: after any change of the panes the pages sat at the old layout's rectangles, over a neighbour's pane, for 55 to 70 ms (measured); now 6 to 28 ms, the state is sent at once and the boxes reported as soon as they are rebuilt. 2026-11-17: 56 unit tests; smoke 92 of 93 (crowded-strip auto-scroll 0 px, cause not seen) then 93 of 93; npm run measure 325 / 2,516 / 1,050 MB, as before. The drags in the smoke test are real pointer input sent to fanout's own interface; nobody has dragged with a real mouse yet."
+        checks:
+          - {type: path, path: src/renderer/tabdrag.js}
+          - {type: cmd, run: "npm test --silent"}
+          - {type: cmd, run: 'node -e "const fs=require(`fs`);const log=fs.readFileSync(`docs/changelog.md`,`utf8`);const ok=log.includes(`## 0.3.0`)&&/Drag a tab onto another tab/.test(log)&&/Drag a tab onto another/.test(fs.readFileSync(`README.md`,`utf8`));console.log(ok?`0.3.0 notes and the README say how to drag tabs into a group`:`the 0.3.0 notes or the README do not say it`);process.exit(ok?0:1)"'}
+          - {type: cmd, run: 'node -e "const s=require(`fs`).readFileSync(`tools/smoke.mjs`,`utf8`);const ok=[`a tab dropped on another makes a group of two`,`a fifth tab is refused`,`a tab dropped on an empty pane`,`Escape cancels a drag`,`closing a tab of the group takes its pane away`].every((c)=>s.includes(c));console.log(ok?`the smoke test drags tabs`:`a drag check is missing from tools/smoke.mjs`);process.exit(ok?0:1)"'}
 
   - id: P3
     name: Memory
@@ -372,6 +384,7 @@ phases:
         title: Reorder tabs and brands by dragging
         status: pending
         effort: 2
+        why: "Tabs of the group move by dragging since 0.3.0 (P2.12). Tabs outside the group and the brands in the rail do not: a tab dropped on another outside the group is not a drop, because a brand keeps one group."
       - id: P6.4
         title: Find in page
         status: pending
@@ -390,7 +403,7 @@ features:
   - {id: F6, title: Sleeping tabs, source: own, area: other, status: shipped, task: P3.1, note: "Unused tabs give their memory back; busy or unsaved tabs are left alone"}
   - {id: F7, title: Installers for three systems, source: own, area: other, status: building, task: P4.2, note: "Windows built; macOS and Linux build in CI"}
   - {id: F8, title: Caption clipboard, source: own, area: workspace, status: planned, task: P6.1, note: "Write once, paste everywhere"}
-  - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages; other tabs open on their own and leave the group alone (P2.10)"}
+  - {id: F10, title: Up to four pages side by side, source: own, area: workspace, status: shipped, task: P2.7, note: "Resizable; every brand remembers its layout and pages; other tabs open on their own and leave the group alone (P2.10); tabs are dragged into, inside and out of the group (P2.12, 0.3.0)"}
   - {id: F11, title: Updates itself, source: own, area: other, status: shipped, task: P4.3, note: "The feed is live on thedumbstuff.page since 0.2.0 (2026-11-17); proved locally and against the site's preview, a real update from the live feed waits for the second release"}
   - {id: F9, title: Media thumbnails, source: own, area: workspace, status: idea, task: P6.2, note: "A picture for every row of the tree; the viewer (F12) already shows one file"}
   - {id: F12, title: Media viewer, source: own, area: workspace, status: shipped, task: P2.11, note: "Video, pictures and sound under the tree with the facts that matter for posting, and a larger view over the pages"}
