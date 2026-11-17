@@ -16,8 +16,9 @@ main process (src/main)            owns all state and every web page
 ```
 
 The main process is the single source of truth. Whenever something the interface shows
-may have changed it sends one `state` message (changes within 40 ms are merged); the
-interface redraws only the elements whose data differs (`reconcile` in `dom.js`).
+may have changed it sends one `state` message (changes within 40 ms are merged, except a
+change in what the page area shows, which goes at once; see below); the interface redraws
+only the elements whose data differs (`reconcile` in `dom.js`).
 
 ## Files
 
@@ -40,6 +41,7 @@ interface redraws only the elements whose data differs (`reconcile` in `dom.js`)
 | `main/menus.js` | application menu (all shortcuts live here) and right-click menus |
 | `main/urls.js` | address bar parsing (pure) |
 | `renderer/app.js` | rail, tab strip, toolbar, panes, status bar |
+| `renderer/tabdrag.js` | dragging a tab in the tab strip: what the pointer is over, and showing it |
 | `renderer/files.js` | file tree, selection, drag out, posted marks |
 | `renderer/preview.js` | text preview (Markdown formatted or as written), select to copy |
 | `renderer/viewer.js` | media viewer: video, picture, sound; controls, facts, larger view |
@@ -74,11 +76,17 @@ up side by side. Only the person changes it:
   group's panes, focus and dividers stay as they are, and its pages are detached like
   any background tab. Selecting a tab of the group, or "Back to the group" over the solo
   tab, brings the group back with that tab's pane focused.
-- A tab joins the group only from its right-click menu, "Put in the group" (into an
-  empty pane, else in place of the focused pane's tab; the label names that tab), or
-  from "Open a new tab here" in an empty pane. "Take out of the group" empties its pane
-  and the tab stays a tab. Closing a tab of the group leaves its pane empty; closing the
-  solo tab brings the group back.
+- A tab joins the group or leaves it only when the person says so, mostly by dragging it
+  in the tab strip (below). Its right-click menu does the same: "Put in the group" (into
+  an empty pane, else a new pane at the end while there are fewer than four, else in
+  place of the focused pane's tab, and then the label names that tab) and "Take out of
+  the group". "Open a new tab here" in an empty pane makes a tab for that pane.
+- A tab that leaves the group takes its pane with it, whether it is dragged out, taken
+  out or closed, as in every browser that tiles tabs: four become three, three become
+  two, and a group left with one tab is no group, one pane showing that tab (or the solo
+  tab, if one was in front: it is what the person is looking at). Closing the solo tab
+  brings the group back. Empty panes come only from the layout buttons, or from a brand
+  added with more pages than tabs.
 - The lit layout button is the number of pages on screen: "one page" while a tab is on
   its own, and choosing it then changes nothing, so a stray click cannot undo the group.
   The group's own size carries a dashed mark. Two to four bring the group back at that
@@ -90,6 +98,49 @@ up side by side. Only the person changes it:
   is in front of it; no tab of a waiting group is highlighted.
 
 With one pane there is no group: selecting a tab puts it in that pane, as in a browser.
+
+### Dragging tabs
+
+Pressing on a tab and moving it more than 5 pixels drags it. A click, a double-click
+(rename), a middle-click (close), a right-click (menu) and the close button work as
+before, a drag never ends in a click, and nothing drags while a tab is being renamed.
+
+| Dropped on | With one pane (no group) | With a group |
+|---|---|---|
+| another tab | the two side by side; the dragged one first on the tab's left half, second on its right half | a tab from outside, on a tab of the group: joins before or after it, by half. A tab of the group, inside it: moves there. A tab from outside on another one outside: nothing (a brand keeps one group) |
+| the group's outline, where no tab is | - | joins (or moves) at the end |
+| the strip outside the outline | nothing | a tab of the group leaves it |
+| an empty pane in the page area | takes that pane | takes that pane (`placeTab`) |
+
+A group holds four tabs: a fifth is refused, shown on the outline and the pointer while
+it hovers and said in the status bar after. Joining or moving lays the group out as its
+tabs in that order (empty panes close up, one pane per tab), shows the group and
+focuses the dragged tab's pane; leaving keeps what is on screen. Dropping a tab where it
+already is changes nothing. A tab with no address cannot leave the group (outside it, it
+would simply be removed), the same as its menu entry. Escape, or letting go where
+nothing takes the tab, changes nothing.
+
+How it is built:
+
+- The rules are plain functions in `model.js`: `planDrop` says what a drop on a target
+  would do, `dropTab` does it, `cleanDropTarget` rebuilds a target from what the
+  interface sent. The interface (`tabdrag.js`) only works out what the pointer is over
+  (`targetAt`: the geometry in, a target out) and asks the main process what a drop
+  there would do (`tab:plan-drop`), to show it; letting go sends `tab:drop`. The main
+  process checks that the tab and the target belong to the brand on screen. All four
+  are unit-tested.
+- Pointer events, with the pointer captured on the tab strip's container, which is never
+  redrawn. A tab's own element is replaced whenever its title, loading state or memory
+  figure changes, so the drag tracks the tab by id and its look is put back after every
+  redraw. No HTML drag and drop: that is a real system drag, offered to the pages under
+  the pointer. The strip and the page area also stop the system drag that a favicon (an
+  image) would start by default.
+- Pages are drawn above the interface, so nothing of a drag can show over them: the label
+  that follows the pointer stays in the toolbar's band under the strip, and the only
+  target in the page area is an empty pane, which no page covers.
+- Everything a drag adds (its listeners, the label, the marker, the pointer capture, the
+  animation frame that scrolls a crowded strip while the tab is held at its end) exists
+  only while the drag does.
 
 `brand.focus` is the pane the address bar acts on while the group is on screen, and it is
 kept while a solo tab shows. `activeTabId` is the solo tab if there is one, else the
@@ -114,8 +165,13 @@ an address.
 Only the tabs the selected brand has on screen are attached to the window. The interface
 measures each box's body and reports the rectangles (`layout:bounds`, in `onScreen`
 order); `tabs.js` places the views on them, and waits while the rectangles are for
-another layout. Pages draw above the interface, so when a dialog opens the interface
-calls `layout:covered` and the views are detached until it closes.
+another layout. Until the new rectangles arrive, a page attached for the new layout sits
+at its old one, over a neighbour's pane, so a change in what the page area shows (the
+number of panes, a drop, a solo tab, another brand) is sent to the interface at once,
+not after the 40 ms merge, and the interface reports the boxes as soon as it has rebuilt
+them rather than on the next frame. Measured on one PC: that time went from 55 to 70 ms
+(0.2.0) to 6 to 28 ms. Pages draw above the interface, so when a dialog opens the
+interface calls `layout:covered` and the views are detached until it closes.
 
 Clicking inside a page focuses its pane (the page's `focus` event). A page that has just
 woken grabs the focus once by itself; that is not taken for a click, and the keyboard
@@ -273,11 +329,15 @@ new `media-src fanout-media:`; nothing else.
 
 ## Tests
 
-- `npm test`: 44 unit tests of the pure modules (the Markdown parser and the group
-  included), file access, the media server (address, ranges with hostile values,
-  content types, the jail, closing on cancel, the open-file cap), and a guard that
-  nothing rewrites what sites see.
-- `npm run smoke`: 77 checks of the real app (the user agent sites see, a silent
+- `npm test`: 56 unit tests of the pure modules (the Markdown parser, the group and
+  every drop rule with its refusals included, each run through a save and load), what a
+  dragged tab is over, file access, the media server (address, ranges with hostile
+  values, content types, the jail, closing on cancel, the open-file cap), and guards
+  that nothing rewrites what sites see and that a tab drag is never an HTML drag.
+- `npm run smoke`: 93 checks of the real app (tab drags with real pointer input sent to
+  the interface: a group of two, three and four, a fifth refused, a move, a tab dragged
+  out, Escape, an empty pane, a crowded strip, every page checked against its pane after
+  each; the user agent sites see, a silent
   refusal shown, lazy loading, sleeping, unsaved-work
   refusal, file jail, preview copy, Markdown formatted and as written, links and
   pictures in Markdown, posted marks, the media viewer (a video's facts and playing,

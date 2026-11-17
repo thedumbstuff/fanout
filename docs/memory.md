@@ -16,6 +16,12 @@ Per tab while loaded: YouTube 207, LinkedIn 167, TikTok 329, Instagram 192, X 22
 Facebook 210 MB. A tab's page process plus the processes of frames it embeds; the tab
 tooltip and the status bar show these numbers live.
 
+Measured again on 2026-11-17 for 0.3.0 (tab dragging, and the layout sent at once; same
+PC and sites): 325 MB with no tabs, 2,516 MB with six loaded (YouTube 207, LinkedIn 239,
+TikTok 322, Instagram 189, X 230, Facebook 214), 1,050 MB with one loaded and five asleep
+44 seconds later; no page refused to sleep. The same as before within what the sites'
+front pages vary by.
+
 How to read them:
 
 - The figures are working-set sums. Chromium processes share memory, so the sum
@@ -107,8 +113,16 @@ element and the open file are released at once.
 **Interface**
 
 - No framework; elements are rebuilt only when their data changed. State updates from
-  the main process are merged over 40 ms. Memory is polled every 5 seconds, and not at
-  all while the window is hidden.
+  the main process are merged over 40 ms (a change in what the page area shows goes at
+  once). Memory is polled every 5 seconds, and not at all while the window is hidden.
+- Dragging a tab keeps nothing between drags. A press on a tab adds three listeners,
+  taken off when the button is let go, when the press becomes a drag, or at the next
+  press; a drag adds four on the strip and one for Escape, a label and a marker, all
+  removed when it ends, however it ends (dropped, Escape, the pointer lost, the tab
+  closed or the brand changed under it), and then for one moment a listener that stops
+  the click the drag would end in. While a tab is held at the end of a crowded strip, one animation frame at a time
+  scrolls it; none is left waiting after. The smoke test checks that no label, marker or
+  look of a drag is left behind.
 
 ## What fanout cannot change
 

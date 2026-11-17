@@ -3,6 +3,24 @@
 Each `## <version>` section is also that version's release notes: `tools/release.mjs build`
 puts it in the update feed, and fanout shows it after updating.
 
+## 0.3.0 - 2026-11-17
+
+- Drag tabs to put pages side by side. Drag a tab onto another tab and the two show side
+  by side: dropped on the left half of the other tab it goes on the left, on the right
+  half it goes on the right. Drag more tabs onto that group (outlined in the tab strip) to
+  see three or four pages at once. Drag a tab inside the group to change the order, and
+  out of the group to take it out. A tab can also be dropped on an empty pane.
+- While you drag, a line shows where the tab will go and a label under the tab strip says
+  what letting go will do. Escape cancels.
+- A group shows four pages at most. A fifth tab is refused, and fanout says why.
+- Taking a tab out of the group, by dragging it out or from its menu, or closing it, now
+  closes its pane too: four pages become three, and a group left with one page goes back
+  to a single page. Before, its pane stayed empty.
+- "Put in the group" in a tab's menu adds a pane while the group has fewer than four,
+  instead of replacing one of its pages.
+- When the layout changes (more or fewer pages, another brand, a tab on its own), pages no
+  longer show over the next pane for a moment before moving into place.
+
 ## 0.2.0 - 2026-11-12
 
 - fanout updates itself. It looks for a new version shortly after starting and every

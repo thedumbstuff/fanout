@@ -1,7 +1,8 @@
 // fanout's main process: one window, the saved data, and the pieces that
 // work on them. Start reading here.
 //
-//   model.js     the saved shape (brands, tabs, settings)       pure
+//   model.js     the saved shape (brands, tabs, panes, settings)  pure
+//                and what dragging a tab does
 //   store.js     JSON file, written a moment after each change
 //   sessions.js  one isolated browser session per brand
 //   tabs.js      pages: loading, showing, sleeping, closing

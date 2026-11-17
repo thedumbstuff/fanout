@@ -1,7 +1,7 @@
 {
   "name": "fanout",
   "productName": "fanout",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "One window for every brand's social accounts: isolated logins, tabs per brand, and a file panel you drag uploads from.",
   "author": "thedumbstuff",
   "license": "MIT",

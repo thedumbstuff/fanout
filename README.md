@@ -70,9 +70,11 @@ and the posted marks you set.
   account in every brand, and stays signed in.
 - **Tabs per brand** for the places it posts. Any address works; nothing in fanout is
   specific to a platform.
-- **Up to four pages side by side**, with dividers you drag. Each brand remembers its
-  layout and which page is in which pane. Other tabs open on their own in front of
-  that group and never push a page out of it; a tab joins the group only when you say so.
+- **Up to four pages side by side.** Drag a tab onto another and the two sit side by
+  side. Drag more onto that group for three or four, drag one inside it to change the
+  order, or drag it out to take it out. The dividers between them drag too. Each brand
+  remembers its layout and which page is in which pane. Other tabs open on their own in
+  front of that group and never push a page out of it.
 - **A file panel per brand**, pinned to the folder that brand posts from. Drag a file
   onto any page that accepts uploads, exactly as you would from Explorer or Finder.
 - **Caption files open in place.** Click a text file (`.txt`, `.md` and the like) to

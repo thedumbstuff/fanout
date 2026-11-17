@@ -1,8 +1,8 @@
 # fanout
 
 Electron app (Windows, macOS, Linux): one window for every brand's social accounts.
-Brands have isolated sign-ins, tabs, up to four pages side by side, a file panel to drag
-uploads from, a text preview with select-to-copy, a media viewer (video, pictures,
+Brands have isolated sign-ins, tabs, up to four pages side by side (a tab dragged onto
+another makes a group; since 0.3.0), a file panel to drag uploads from, a text preview with select-to-copy, a media viewer (video, pictures,
 sound; served over `fanout-media:` to the interface only), and a posted tracker. Open source
 (MIT) under thedumbstuff. Started 2026-11-12.
 
@@ -30,8 +30,8 @@ Read `README.md`, then `docs/architecture.md`, `docs/memory.md`, `docs/gotchas.m
 ## Working here
 
 ```
-npm test                       # 48 unit tests
-npm run smoke                  # 77 checks on the real app; opens a window (muted)
+npm test                       # 56 unit tests
+npm run smoke                  # 93 checks on the real app; opens a window (muted)
 npm run measure                # memory on six real sites; takes about 2 minutes
 npm run screenshots            # README pictures from the real app (sample data); opens a window, about 2 minutes
 node node_modules/electron/cli.js tools/media-formats.mjs   # which formats the viewer shows here
@@ -64,4 +64,8 @@ python watchtower/server.py    # http://127.0.0.1:8768  (--once for the terminal
   first release on thedumbstuff.page (2026-11-17), is the only one there, so it waits for the
   second (`docs/updates.md`, "Publishing a release").
 - fanout 0.2.0 is installed on the owner's PC at `%LOCALAPPDATA%\Programs\fanout` (2026-11-12).
-- Later: caption clipboard (P6.1), thumbnails in the tree (P6.2), tab reordering.
+- Dragging tabs into, inside and out of the group (0.3.0, roadmap P2.12) is checked by the
+  smoke test with pointer input sent to fanout's own interface; nobody has tried it with a
+  real mouse yet, and the owner has not seen it.
+- Later: caption clipboard (P6.1), thumbnails in the tree (P6.2), reordering tabs outside
+  the group and brands (P6.3).
