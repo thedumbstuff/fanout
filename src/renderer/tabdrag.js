@@ -67,7 +67,7 @@ export class TabDrag {
   #note;
   #renaming;
   #pending = null; // a press on a tab that has not moved far enough to be a drag
-  #drag = null; // { tabId, brandId, pointerId, x, y, target, key, does, zone, asked, label }
+  #drag = null; // { tabId, brandId, pointerId, x, y, target, key, shown, zone, asked, speed, cancelled }
   #ghost = null;
   #marker = null;
   #scroll = 0; // the frame request that scrolls a crowded strip
@@ -142,7 +142,7 @@ export class TabDrag {
     }
     const drag = {
       tabId: tab.id, brandId: brand.id, pointerId: pending.pointerId,
-      x: e.clientX, y: e.clientY, target: null, key: '', does: null, zone: null, asked: 0, speed: 0, cancelled: false,
+      x: e.clientX, y: e.clientY, target: null, key: '', shown: null, zone: null, asked: 0, speed: 0, cancelled: false,
     };
     this.#drag = drag;
     const on = {
@@ -159,7 +159,7 @@ export class TabDrag {
       ev.stopPropagation();
       drag.cancelled = true;
       drag.target = null;
-      drag.does = null;
+      drag.shown = null;
       drag.speed = 0;
       this.paint();
     };
@@ -200,12 +200,14 @@ export class TabDrag {
     if (key !== drag.key) {
       drag.key = key;
       drag.target = target;
-      drag.does = null; // not known until the main process answers
-      if (target) {
-        const asked = ++drag.asked;
+      // What a drop there does is shown once the main process has answered;
+      // until then the last answer stays up, so nothing blinks between places.
+      const asked = ++drag.asked; // also when there is nothing to ask: an answer still on its way is for elsewhere
+      if (!target) drag.shown = null;
+      else {
         this.#api.planDrop(drag.tabId, target).then((does) => {
           if (this.#drag !== drag || drag.asked !== asked || drag.cancelled) return; // a newer question is out
-          drag.does = does;
+          drag.shown = { target, does };
           this.paint();
         }, () => {});
       }
@@ -320,7 +322,8 @@ export class TabDrag {
     const tabEl = (id) => strip.querySelector(`.tab[data-id="${CSS.escape(id)}"]`);
     tabEl(drag.tabId)?.classList.add('is-lifted');
 
-    const { target, does } = drag;
+    const target = drag.shown?.target;
+    const does = drag.shown?.does ?? null;
     const refused = does === 'full' || does === 'blank';
     document.body.classList.toggle('is-drop-refused', refused);
     // The outline: where a tab from outside goes, the whole drag long.
