@@ -13,8 +13,8 @@
 
 import { WebContentsView, app, dialog } from 'electron';
 import {
-  addTab, findBrand, findTab, focusPane, nameFor, onScreen, placeTab, removeTab, setPaneCount, setSplit, showTab,
-  takeOutOfGroup,
+  addTab, DROPS, dropTab, findBrand, findTab, focusPane, nameFor, onScreen, placeTab, planDrop, removeTab, setPaneCount,
+  setSplit, showTab, takeOutOfGroup,
 } from './model.js';
 import { pickTabsToSleep } from './sleeper.js';
 import { isWebUrl, toUrl } from './urls.js';
@@ -23,6 +23,7 @@ const SWEEP_MS = 30_000;
 const FORCE_CLOSE_MS = 4000; // a page that hangs on close is closed anyway
 const ABORTED = -3; // Chromium's code for a load the user or page cancelled
 const WAKE_FOCUS_MS = 3000; // a woken page grabs the focus once by itself within this time
+const CHANGES = new Set([DROPS.pair, DROPS.join, DROPS.move, DROPS.leave, DROPS.pane]); // drops that change the panes
 
 export class TabManager {
   #window;
@@ -149,13 +150,40 @@ export class TabManager {
     this.sweep();
   }
 
-  /** Take a tab out of its brand's group: its pane is left empty. */
+  /** Take a tab out of its brand's group: its pane goes with it, and a group of one ends. */
   takeOutOfGroup(tabId) {
     const found = findTab(this.#store.data, tabId);
     if (!found || !takeOutOfGroup(found.brand, tabId)) return;
     this.#store.touch();
     this.#present();
     this.sweep();
+  }
+
+  /**
+   * What dropping a tab dragged in the tab strip on `target` would do (one of
+   * DROPS, see planDrop in model.js), without doing it: the interface shows it
+   * while the pointer moves. Only tabs of the brand on screen are in the strip.
+   */
+  planDrop(tabId, target) {
+    const brand = this.#activeBrand();
+    return brand && target ? planDrop(brand, tabId, target).does : DROPS.none;
+  }
+
+  /** Drop a tab dragged in the tab strip on `target`. Returns what it did, or why it did nothing (DROPS). */
+  drop(tabId, target) {
+    const brand = this.#activeBrand();
+    if (!brand || !target) return DROPS.none;
+    const does = dropTab(brand, tabId, target);
+    if (!CHANGES.has(does)) return does;
+    if (does !== DROPS.leave) {
+      // It is on screen now, as if it had been selected.
+      this.#parked.delete(tabId);
+      this.#crashed.delete(tabId);
+    }
+    this.#store.touch();
+    this.#present({ focus: does !== DROPS.leave });
+    this.sweep();
+    return does;
   }
 
   /** A page asked for a new tab (a link with target=_blank, or the menu). */

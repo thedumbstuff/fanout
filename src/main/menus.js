@@ -83,15 +83,18 @@ export function buildAppMenu(ctx) {
 const menuText = (text) => (text.length > 40 ? `${text.slice(0, 39)}…` : text).replace(/&/g, '&&');
 
 /**
- * The tab menu's entry for the brand's group, if the brand has one. Joining
- * the group is deliberate (selecting a tab never does it), so the label says
- * which tab the new one would push out.
+ * The tab menu's entry for the brand's group, if the brand has one: the same
+ * as dragging the tab into the group or out of it. Joining the group is
+ * deliberate (selecting a tab never does it). It goes into an empty pane, else
+ * a new one, up to four (groupSlot); only a group of four makes a tab give
+ * way, and then the label says which.
  * @returns {Electron.MenuItemConstructorOptions[]}
  */
 function groupItems(ctx, brand, tab) {
   if (brand.panes.length < 2) return [];
   if (brand.panes.includes(tab.id)) {
     // A blank tab has nothing to keep: out of the group it would simply be removed.
+    // Its pane goes with it, and a group left with one tab ends.
     return [{ label: 'Take out of the group', enabled: !isBlank(tab), click: () => ctx.tabs.takeOutOfGroup(tab.id) }];
   }
   const replaced = brand.tabs.find((t) => t.id === brand.panes[groupSlot(brand)]);

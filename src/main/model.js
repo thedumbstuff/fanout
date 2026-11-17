@@ -187,11 +187,22 @@ function ratio(value) {
 //   |  C  |  D  |  <--------  |           |    (outline dashed:
 //   +-----+-----+  select C   +-----------+     the group waits)
 //
-// A tab joins the group or leaves it only when the person says so: placeTab
-// (the tab menu, or a new tab opened in an empty pane), takeOutOfGroup, the
-// layout buttons (setPaneCount). Closing a tab of the group leaves its pane
-// empty. With one pane there is no group: selecting a tab puts it in that
-// pane, as in a browser, and `solo` stays null.
+// A tab joins the group or leaves it only when the person says so: dragging
+// it in the tab strip (dropTab, below), placeTab (the tab menu, a new tab
+// opened in an empty pane), takeOutOfGroup, the layout buttons
+// (setPaneCount). A tab that leaves the group - dragged out, taken out,
+// closed - takes its pane with it, and a group left with one tab is no group:
+//
+//   A B C D   drag D out   A B C    close C   A B    take B out   A
+//   +-+-+     ---------->  +-+-+    ------->  +-+-+  ---------->  +---+
+//   |A|B|                  | |B|              |A|B|               | A |
+//   +-+-+                  |A+-+              +-+-+               +---+
+//   |C|D|                  | |C|
+//   +-+-+                  +-+-+
+//
+// Empty panes come only from the layout buttons (more panes than tabs) or a
+// brand added with more pages than tabs. With one pane there is no group:
+// selecting a tab puts it in that pane, as in a browser, and `solo` stays null.
 //
 // `splitX` and `splitY` are where the two dividers sit. `focus` is the pane
 // the address bar acts on while the group is on screen, and is kept while a
@@ -324,24 +335,34 @@ export function setPaneCount(brand, count) {
   settle(brand);
 }
 
-/** The pane "Put in the group" uses: an empty one (the focused pane first), else the focused one. */
+/**
+ * The pane "Put in the group" uses: an empty one (the focused pane first);
+ * else, with fewer than four panes, a new pane at the end (panes.length);
+ * else the focused one, whose tab gives way.
+ */
 export function groupSlot(brand) {
   if (!brand.panes[brand.focus]) return brand.focus;
   const empty = brand.panes.indexOf(null);
-  return empty === -1 ? brand.focus : empty;
+  if (empty !== -1) return empty;
+  return brand.panes.length < MAX_PANES ? brand.panes.length : brand.focus;
 }
 
 /**
- * Put a tab in a pane: the tab menu's "Put in the group", and a new tab opened
- * in an empty pane. What was in that pane becomes a tab outside the group (a
- * tab already in the group swaps places with it instead). The group is shown,
- * with that pane focused, so the person sees where the tab went. False if
- * there is no such tab or pane.
+ * Put a tab in a pane: the tab menu's "Put in the group", a new tab opened in
+ * an empty pane, a tab dropped on an empty pane. What was in that pane becomes
+ * a tab outside the group (a tab already in the group swaps places with it
+ * instead). `index` one past the last pane adds a pane there, for a tab from
+ * outside a group of two or three. The group is shown, with that pane
+ * focused, so the person sees where the tab went. False if there is no such
+ * tab or pane.
  */
 export function placeTab(brand, tabId, index = groupSlot(brand)) {
-  if (!hasTab(brand, tabId) || !isPane(brand, index)) return false;
-  const displaced = brand.panes[index];
+  if (!hasTab(brand, tabId)) return false;
   const from = brand.panes.indexOf(tabId);
+  const grow = index === brand.panes.length && from === -1 && brand.panes.length > 1 && brand.panes.length < MAX_PANES;
+  if (grow) brand.panes.push(null);
+  else if (!isPane(brand, index)) return false;
+  const displaced = brand.panes[index];
   if (from !== -1) brand.panes[from] = displaced;
   brand.panes[index] = tabId;
   brand.focus = index;
@@ -352,14 +373,166 @@ export function placeTab(brand, tabId, index = groupSlot(brand)) {
   return true;
 }
 
-/** Take a tab out of the group: its pane is left empty and it stays a tab. False if it is not in the group. */
+/**
+ * The group after the tab in pane `at` left it (dragged out, taken out or
+ * closed): that pane goes, and the focus stays on the pane it was on. A
+ * group left with one tab is no group: one pane, showing the solo tab if one
+ * was in front (it is what the person is looking at), else the tab that is
+ * left, else `fallback`.
+ */
+function closePane(brand, at, fallback) {
+  const panes = brand.panes.filter((_, index) => index !== at);
+  const before = [...brand.panes, brand.solo];
+  const left = panes.filter(Boolean);
+  if (left.length < 2) {
+    brand.panes = [brand.solo ?? left[0] ?? fallback ?? null];
+    brand.focus = 0;
+    brand.solo = null;
+  } else {
+    brand.panes = panes;
+    if (brand.focus > at || brand.focus === panes.length) brand.focus -= 1;
+  }
+  dropStrayBlanks(brand, before);
+  settle(brand);
+}
+
+/**
+ * Take a tab out of the group: its pane goes with it and it stays a tab
+ * (closePane). False if it is not in the group.
+ */
 export function takeOutOfGroup(brand, tabId) {
   const at = brand.panes.indexOf(tabId);
   if (at === -1 || brand.panes.length < 2) return false;
-  brand.panes[at] = null;
-  dropStrayBlanks(brand, [tabId]);
-  settle(brand);
+  closePane(brand, at, tabId);
   return true;
+}
+
+// ---------------------------------------------------------- dragging tabs
+//
+// A tab dragged in the tab strip is dropped on one of these (the interface
+// works out which from the pointer; cleanDropTarget checks what it sends):
+//
+//   { on: 'tab', tabId, after }  a tab in the strip; `after` = its right half
+//   { on: 'group' }              the group's outline, where no tab is
+//   { on: 'strip' }              the tab strip outside the group's outline
+//   { on: 'pane', index }        an empty pane in the page area
+//
+// What that does (planDrop):
+//
+//   no group (one pane)    on a tab: the two side by side, the dragged one
+//                          first if it is dropped on the left half
+//   a group                a tab from outside, on the group or one of its
+//                          tabs: joins it there (refused when it has four);
+//                          a tab of the group, inside it: moves there;
+//                          a tab of the group, outside it: leaves it;
+//                          a tab from outside on another one: nothing (a
+//                          brand keeps one group)
+//   an empty pane          the tab takes that pane (placeTab)
+//
+// Joining or moving lays the group out as its tabs in order, so empty panes
+// close up and there are as many panes as tabs. Every change but leaving
+// brings the group on screen with the dragged tab's pane focused; leaving
+// keeps what is on screen.
+
+/** What dropTab answers: a change it made, or why it made none. */
+export const DROPS = Object.freeze({
+  pair: 'pair', // two tabs side by side: a new group
+  join: 'join', // a tab joined the group
+  move: 'move', // a tab of the group moved inside it
+  leave: 'leave', // a tab left the group
+  pane: 'pane', // a tab took an empty pane
+  none: 'none', // nothing to do there (on itself, where it already is, not a place to drop)
+  full: 'full', // refused: the group has four tabs
+  blank: 'blank', // refused: a tab with no address cannot be on its own outside the group
+});
+
+const DROP_ON = new Set(['tab', 'group', 'strip', 'pane']);
+
+/** A drop target as the interface sent it, rebuilt from its parts; null if it is not one. */
+export function cleanDropTarget(raw) {
+  if (!raw || typeof raw !== 'object' || !DROP_ON.has(raw.on)) return null;
+  if (raw.on === 'tab') {
+    // A string only: a regular expression would read ['t_...'] as its text.
+    return typeof raw.tabId === 'string' && TAB_ID.test(raw.tabId) ? { on: 'tab', tabId: raw.tabId, after: raw.after === true } : null;
+  }
+  if (raw.on === 'pane') {
+    return Number.isInteger(raw.index) && raw.index >= 0 && raw.index < MAX_PANES ? { on: 'pane', index: raw.index } : null;
+  }
+  return { on: raw.on };
+}
+
+/** The group with `tabId` put at position `at` of `group`; none if that is where it is. */
+function placeInGroup(group, tabId, at) {
+  const from = group.indexOf(tabId);
+  if (from === -1 && group.length >= MAX_PANES) return { does: DROPS.full };
+  const order = group.filter((id) => id !== tabId);
+  order.splice(from !== -1 && from < at ? at - 1 : at, 0, tabId);
+  if (from !== -1 && order.every((id, index) => id === group[index])) return { does: DROPS.none };
+  return { does: from === -1 ? DROPS.join : DROPS.move, order };
+}
+
+/**
+ * What dropping `tabId` on `target` would do, without doing it:
+ * `{ does }` (one of DROPS), with the group's new `order` for pair, join and
+ * move. The interface asks while the pointer moves, to show it.
+ */
+export function planDrop(brand, tabId, target) {
+  const none = { does: DROPS.none };
+  if (!hasTab(brand, tabId) || !target) return none;
+  const group = groupOf(brand);
+  const grouped = brand.panes.length > 1;
+  const inGroup = group.includes(tabId);
+  const leave = () => {
+    if (!inGroup) return none;
+    return isBlank(brand.tabs.find((tab) => tab.id === tabId)) ? { does: DROPS.blank } : { does: DROPS.leave };
+  };
+  switch (target.on) {
+    case 'pane':
+      // Only an empty pane: a page covers the others, and nothing can be drawn over it.
+      return isPane(brand, target.index) && brand.panes[target.index] === null ? { does: DROPS.pane, index: target.index } : none;
+    case 'tab': {
+      if (target.tabId === tabId || !hasTab(brand, target.tabId)) return none;
+      if (!grouped) return { does: DROPS.pair, order: target.after ? [target.tabId, tabId] : [tabId, target.tabId] };
+      const at = group.indexOf(target.tabId);
+      if (at === -1) return leave();
+      return placeInGroup(group, tabId, at + (target.after ? 1 : 0));
+    }
+    case 'group':
+      return grouped ? placeInGroup(group, tabId, group.length) : none;
+    case 'strip':
+      return grouped ? leave() : none;
+    default:
+      return none;
+  }
+}
+
+/**
+ * Drop a dragged tab on `target` (see planDrop). Returns what it did, or why
+ * it did nothing: one of DROPS.
+ */
+export function dropTab(brand, tabId, target) {
+  const plan = planDrop(brand, tabId, target);
+  switch (plan.does) {
+    case DROPS.pane:
+      placeTab(brand, tabId, plan.index);
+      break;
+    case DROPS.leave:
+      takeOutOfGroup(brand, tabId);
+      break;
+    case DROPS.pair:
+    case DROPS.join:
+    case DROPS.move: {
+      const before = [...brand.panes, brand.solo];
+      brand.panes = plan.order;
+      brand.focus = plan.order.indexOf(tabId);
+      brand.solo = null;
+      dropStrayBlanks(brand, before);
+      settle(brand);
+      break;
+    }
+    default:
+  }
+  return plan.does;
 }
 
 export function setSplit(brand, { x, y } = {}) {
@@ -473,9 +646,10 @@ export function addTab(brand, { url = '', temp = false, afterId = null } = {}) {
 
 /**
  * Remove a tab. A solo tab that goes takes nothing with it: the group comes
- * back. A tab of the group leaves its pane empty, because no tab joins the
- * group by itself. The one pane of a brand without a group takes the nearest
- * tab instead (right-hand neighbour first), as a browser does.
+ * back. A tab of the group takes its pane with it, as in every browser that
+ * tiles tabs, and a group left with one tab ends (closePane); no other tab
+ * joins the group by itself. The one pane of a brand without a group takes
+ * the nearest tab instead (right-hand neighbour first), as a browser does.
  */
 export function removeTab(brand, tabId) {
   const index = brand.tabs.findIndex((tab) => tab.id === tabId);
@@ -483,9 +657,9 @@ export function removeTab(brand, tabId) {
   const [tab] = brand.tabs.splice(index, 1);
   if (brand.solo === tabId) brand.solo = null;
   const pane = brand.panes.indexOf(tabId);
-  if (pane !== -1) {
-    brand.panes[pane] = brand.panes.length > 1 ? null : ((brand.tabs[index] ?? brand.tabs[index - 1])?.id ?? null);
-  }
+  const nearest = (brand.tabs[index] ?? brand.tabs[index - 1])?.id ?? null;
+  if (pane !== -1 && brand.panes.length > 1) closePane(brand, pane, nearest);
+  else if (pane !== -1) brand.panes[0] = nearest;
   settle(brand);
   return tab;
 }

@@ -10,11 +10,12 @@ import { decode, fileKind, FolderWatcher, listDir, readText, MAX_TEXT_BYTES } fr
 import { MAX_OPEN, MEDIA_SCHEME, MediaServer, mediaType, parseMediaUrl, parseRange } from '../src/main/media.js';
 import { formatDuration, MEDIA_SCHEME as VIEWER_SCHEME, mediaFacts, mediaUrl, shapeOf } from '../src/renderer/viewer.js';
 import {
-  addTab, autoLabel, cleanSettings, createBrand, defaults, deleteBrand, destinations, findTab, focusPane, groupOf, groupSlot,
-  isBlank, nameFor, onScreen, placeTab, removeTab, sanitize, setPaneCount, setSplit, showTab, stepTab, stripOrder, tabLabel,
-  takeOutOfGroup, UNNAMED_TAB,
+  addTab, autoLabel, cleanDropTarget, cleanSettings, createBrand, defaults, deleteBrand, destinations, DROPS, dropTab, findTab,
+  focusPane, groupOf, groupSlot, isBlank, nameFor, onScreen, placeTab, planDrop, removeTab, sanitize, setPaneCount, setSplit,
+  showTab, stepTab, stripOrder, tabLabel, takeOutOfGroup, UNNAMED_TAB,
 } from '../src/main/model.js';
 import { cover, renameText } from '../src/renderer/dom.js';
+import { targetAt } from '../src/renderer/tabdrag.js';
 import { isMarkdownFile, parseMarkdown, plainText, webHref } from '../src/renderer/markdown.js';
 import { notesText, whatsNew } from '../src/main/notes.js';
 import { notesFor, PART_SIZE, partsOf, stillToSend, uploadsOf, worthRetrying } from '../tools/release.mjs';
@@ -218,10 +219,10 @@ test('panes: one to four tabs side by side, each tab in one pane only', () => {
   setPaneCount(brand, 3);
   assert.deepEqual(brand.panes, [b, a, c]);
   removeTab(brand, a);
-  assert.deepEqual(brand.panes, [b, null, c], 'no spare tab: the pane empties');
+  assert.deepEqual([brand.panes, brand.focus], [[b, c], 0], 'a closed tab takes its pane with it');
   const d = addTab(brand, { url: 'https://d.example/' }).id;
   removeTab(brand, c);
-  assert.deepEqual(brand.panes, [b, null, null], 'a spare tab does not join the group by itself');
+  assert.deepEqual([brand.panes, groupOf(brand)], [[b], []], 'a group of one is no group; a spare tab does not join by itself');
 
   setSplit(brand, { x: 0.05, y: 0.66 });
   assert.deepEqual([brand.splitX, brand.splitY], [0.2, 0.66], 'dividers stay away from the edges');
@@ -344,6 +345,12 @@ function assertConsistent(brand) {
     'a blank tab is in a pane or on screen');
 }
 
+/** The invariants hold, and the brand is saved and loaded back exactly as it is (cleanBrand changes nothing). */
+function assertSaves(brand) {
+  assertConsistent(brand);
+  assert.deepEqual(sanitize({ brands: [JSON.parse(JSON.stringify(brand))] }).brands[0], brand, 'saved and loaded unchanged');
+}
+
 /** A brand with tabs a, b, c, ... (one per letter) and the ids in that order. */
 function brandWith(letters, data = defaults()) {
   const brand = createBrand(data, { name: 'Group', urls: [...letters].map((x) => `https://${x}.example/`) });
@@ -409,51 +416,67 @@ test('putting a tab in the group, or taking it out, is deliberate', () => {
   setPaneCount(brand, 4);
   focusPane(brand, 1);
   showTab(brand, e);
-  assert.equal(groupSlot(brand), 1, 'no empty pane: the focused one');
+  assert.equal(groupSlot(brand), 1, 'four panes, none empty: the focused one');
 
   assert.equal(placeTab(brand, e), true, 'the tab menu: Put in the group, in place of b');
   assert.deepEqual([brand.panes, brand.focus, brand.solo, brand.activeTabId], [[a, e, c, d], 1, null, e],
     'the group is shown with the tab in it');
   assert.ok(brand.tabs.some((tab) => tab.id === b) && !groupOf(brand).includes(b), 'the tab it replaced stays, outside the group');
-  assertConsistent(brand);
+  assertSaves(brand);
 
   assert.equal(takeOutOfGroup(brand, c), true);
-  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[a, e, null, d], 1, e], 'its pane is left empty');
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[a, e, d], 1, e], 'its pane goes with it, as when dragged out');
   assert.ok(brand.tabs.some((tab) => tab.id === c), 'it stays a tab');
-  assert.equal(groupSlot(brand), 2, 'the focused pane is taken: the empty one');
+  assert.equal(groupSlot(brand), 3, 'fewer than four panes, none empty: a new pane at the end');
   showTab(brand, b);
   placeTab(brand, b);
-  assert.deepEqual([brand.panes, brand.focus, brand.solo], [[a, e, b, d], 2, null], 'into the empty pane, nothing replaced');
-  assertConsistent(brand);
+  assert.deepEqual([brand.panes, brand.focus, brand.solo], [[a, e, d, b], 3, null], 'in a new pane, nothing replaced');
+  assertSaves(brand);
 
   assert.equal(placeTab(brand, d, 0), true, 'a tab already in the group');
-  assert.deepEqual([brand.panes, brand.focus], [[d, e, b, a], 0], 'swaps places with the one it lands on');
+  assert.deepEqual([brand.panes, brand.focus], [[d, e, a, b], 0], 'swaps places with the one it lands on');
   assert.equal(takeOutOfGroup(brand, f), false, 'not in the group');
   assert.equal(placeTab(brand, 't_ffffffffff', 0), false, 'no such tab');
-  assert.equal(placeTab(brand, f, 4), false, 'no such pane');
-  assertConsistent(brand);
+  assert.equal(placeTab(brand, f, 4), false, 'never a fifth pane');
+  assertSaves(brand);
 
+  // Empty panes come from a layout button with more panes than tabs: they are filled first.
+  const [small, [x, y, z]] = brandWith('xyz');
+  setPaneCount(small, 2);
+  setPaneCount(small, 4);
+  assert.deepEqual(small.panes, [x, y, z, null]);
+  takeOutOfGroup(small, z);
+  assert.deepEqual([small.panes, groupSlot(small)], [[x, y, null], 2], 'an empty pane before a new one');
+  showTab(small, z);
+  placeTab(small, z);
+  assert.deepEqual([small.panes, small.focus, small.solo], [[x, y, z], 2, null]);
   // "Open a new tab here" in an empty pane: a blank tab made for that pane.
-  takeOutOfGroup(brand, b);
-  showTab(brand, f);
-  const here = addTab(brand).id;
-  placeTab(brand, here, 2);
-  assert.deepEqual([brand.panes, brand.focus, brand.solo, brand.activeTabId], [[d, e, here, a], 2, null, here]);
-  assertConsistent(brand);
-  takeOutOfGroup(brand, here);
-  assert.ok(!brand.tabs.some((tab) => tab.id === here), 'a blank tab taken out of the group is removed');
-  const fresh = addTab(brand).id;
-  showTab(brand, fresh);
-  placeTab(brand, d);
-  assert.ok(!brand.tabs.some((tab) => tab.id === fresh), 'a blank solo tab another tab replaces on screen is removed');
-  assertConsistent(brand);
+  setPaneCount(small, 4);
+  const here = addTab(small).id;
+  placeTab(small, here, 3);
+  assert.deepEqual([small.panes, small.focus, small.solo, small.activeTabId], [[x, y, z, here], 3, null, here]);
+  assertSaves(small);
+  takeOutOfGroup(small, here);
+  assert.ok(!small.tabs.some((tab) => tab.id === here), 'a blank tab taken out of the group is removed');
+  assert.deepEqual([small.panes, small.focus], [[x, y, z], 2], 'its pane goes; the focus moves to the pane before it');
+  const fresh = addTab(small).id;
+  showTab(small, fresh);
+  placeTab(small, y, 0);
+  assert.deepEqual([small.panes, small.solo], [[y, x, z], null]);
+  assert.ok(!small.tabs.some((tab) => tab.id === fresh), 'a blank solo tab another tab replaces on screen is removed');
+  assertSaves(small);
 
-  const [single, [x]] = brandWith('xy');
-  assert.equal(takeOutOfGroup(single, x), false, 'one pane is not a group');
-  assert.deepEqual(single.panes, [x]);
+  const [single, [s]] = brandWith('st');
+  assert.equal(takeOutOfGroup(single, s), false, 'one pane is not a group');
+  assert.deepEqual(single.panes, [s]);
+  const [pair, [p, q]] = brandWith('pq');
+  setPaneCount(pair, 2);
+  takeOutOfGroup(pair, p);
+  assert.deepEqual([pair.panes, pair.focus, groupOf(pair)], [[q], 0, []], 'a group of two taken apart: one pane with the tab left');
+  assertSaves(pair);
 });
 
-test('closing tabs: a solo tab gives the screen back to the group; a tab of the group leaves its pane empty', () => {
+test('closing tabs: a solo tab gives the screen back to the group; a tab of the group takes its pane with it', () => {
   const [brand, [a, b, c, d, e, f]] = brandWith('abcdef');
   setPaneCount(brand, 4);
   focusPane(brand, 2);
@@ -461,22 +484,42 @@ test('closing tabs: a solo tab gives the screen back to the group; a tab of the 
   removeTab(brand, e);
   assert.deepEqual([brand.solo, brand.panes, brand.focus, brand.activeTabId], [null, [a, b, c, d], 2, c],
     'closing the solo tab brings the group back as it was');
-  showTab(brand, f);
   removeTab(brand, c);
-  assert.deepEqual([brand.solo, brand.panes, brand.focus, brand.activeTabId], [f, [a, b, null, d], 2, f],
-    'closing a group tab behind a solo tab: the solo tab stays, the pane empties');
-  assertConsistent(brand);
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[a, b, d], 2, d],
+    'the focused tab closed: its pane goes, the focus moves to the pane that takes its place');
+  assertSaves(brand);
+  removeTab(brand, d);
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[a, b], 1, b], 'the last pane closed: the focus moves left');
+  focusPane(brand, 1);
+  removeTab(brand, a);
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId, groupOf(brand)], [[b], 0, b, []],
+    'a group left with one tab ends: one pane, that tab');
+  assert.ok(brand.tabs.some((tab) => tab.id === f), 'no other tab joins by itself');
+  assertSaves(brand);
+
+  setPaneCount(brand, 2);
+  assert.deepEqual(brand.panes, [b, f]);
+  showTab(brand, addTab(brand, { url: 'https://g.example/' }).id);
+  const g = brand.solo;
   removeTab(brand, f);
-  assert.deepEqual([brand.solo, onScreen(brand), brand.activeTabId], [null, [a, b, null, d], null],
-    'the group comes back with its empty pane focused');
-  assertConsistent(brand);
-  for (const id of [a, b, d]) {
-    removeTab(brand, id);
-    assertConsistent(brand);
-  }
-  assert.deepEqual([brand.tabs, brand.panes, brand.solo, brand.activeTabId], [[], [null, null, null, null], null, null],
-    'the last tab gone: four empty panes');
+  assert.deepEqual([brand.solo, brand.panes, brand.activeTabId], [null, [g], g],
+    'the group ends behind a solo tab: the solo tab stays on screen, in the one pane');
+  assert.ok(brand.tabs.some((tab) => tab.id === b), 'the tab left over stays a tab');
+  assertSaves(brand);
+
+  // A group of one with an empty pane (a layout button): closing that tab leaves one pane, with the nearest tab.
+  setPaneCount(brand, 2);
+  removeTab(brand, b);
+  setPaneCount(brand, 1);
+  setPaneCount(brand, 3);
+  assert.deepEqual(brand.panes, [g, null, null]);
+  const h = addTab(brand, { url: 'https://h.example/' }).id;
+  removeTab(brand, g);
+  assert.deepEqual([brand.panes, brand.activeTabId], [[h], h]);
+  removeTab(brand, h);
+  assert.deepEqual([brand.tabs, brand.panes, brand.solo, brand.activeTabId], [[], [null], null, null], 'the last tab gone: one empty pane');
   assert.equal(removeTab(brand, a), null, 'already gone');
+  assertSaves(brand);
 
   const [single, [x, y]] = brandWith('xy');
   removeTab(single, x);
@@ -527,14 +570,16 @@ test('layout buttons: one page while a tab is on its own changes nothing; two to
   setPaneCount(brand, 2);
   assert.deepEqual(brand.panes, [kept, a], 'a new pane takes the next tab not on screen');
 
-  // A group with an empty pane focused.
-  takeOutOfGroup(brand, a);
-  focusPane(brand, 1);
-  showTab(brand, d);
-  setPaneCount(brand, 2);
-  assert.deepEqual([brand.panes, brand.focus, brand.solo, brand.activeTabId], [[kept, null], 1, null, null],
+  // A group with an empty pane focused (more panes than tabs).
+  const [small, [x, y]] = brandWith('xy');
+  setPaneCount(small, 3);
+  focusPane(small, 2);
+  const z = addTab(small, { url: 'https://z.example/' }).id;
+  showTab(small, z);
+  setPaneCount(small, 3);
+  assert.deepEqual([small.panes, small.focus, small.solo, small.activeTabId], [[x, y, null], 2, null, null],
     'the group comes back with its empty pane');
-  assertConsistent(brand);
+  assertConsistent(small);
 });
 
 test('Ctrl+Tab goes round the tab strip: the group pane by pane, then each tab outside it', () => {
@@ -556,14 +601,17 @@ test('Ctrl+Tab goes round the tab strip: the group pane by pane, then each tab o
   showTab(brand, b);
   assert.deepEqual([stepTab(brand, 1), stepTab(brand, -1)], [d, c], 'from a solo tab: its neighbours in the strip');
 
-  focusPane(brand, 1);
-  takeOutOfGroup(brand, f);
-  assert.equal(brand.activeTabId, null);
-  assert.deepEqual([stepTab(brand, 1), stepTab(brand, -1)], [c, a], 'from an empty pane: the tabs either side of it');
-  focusPane(brand, 0);
-  takeOutOfGroup(brand, a);
-  assert.deepEqual(stripOrder(brand), [c, a, b, d, e, f]);
-  assert.deepEqual([stepTab(brand, 1), stepTab(brand, -1)], [c, f], 'an empty first pane: round to the last tab');
+  // Empty panes: a layout button with more panes than tabs.
+  const [roomy, [p, q]] = brandWith('pq');
+  setPaneCount(roomy, 4);
+  const r = addTab(roomy, { url: 'https://r.example/' }).id;
+  focusPane(roomy, 2);
+  assert.deepEqual([roomy.panes, roomy.activeTabId, stripOrder(roomy)], [[p, q, null, null], null, [p, q, r]]);
+  assert.deepEqual([stepTab(roomy, 1), stepTab(roomy, -1)], [r, q], 'from an empty pane: the tabs either side of it');
+  placeTab(roomy, p, 3);
+  focusPane(roomy, 0);
+  assert.deepEqual([roomy.panes, stripOrder(roomy)], [[null, q, null, p], [q, p, r]]);
+  assert.deepEqual([stepTab(roomy, 1), stepTab(roomy, -1)], [q, r], 'an empty first pane: round to the last tab');
 
   const [single, [, y, z]] = brandWith('xyz');
   assert.deepEqual([stepTab(single, 1), stepTab(single, -1)], [y, z], 'one pane: plain tab order');
@@ -658,9 +706,9 @@ test('blank tabs live only in panes: one that loses its pane is removed', () => 
   assert.deepEqual([brand.panes, ids()], [[a], [a, b]], 'fewer panes: the blank tab that lost its pane is removed');
   consistent();
 
-  setPaneCount(brand, 2);
   removeTab(brand, b);
-  assert.deepEqual(brand.panes, [a, null]);
+  setPaneCount(brand, 2);
+  assert.deepEqual(brand.panes, [a, null], 'no tab left to fill the second pane');
   focusPane(brand, 1);
   const here = addTab(brand); // "Open a new tab here" in the empty pane
   placeTab(brand, here.id, 1);
@@ -677,6 +725,231 @@ test('blank tabs live only in panes: one that loses its pane is removed', () => 
   showTab(brand, a);
   assert.ok(brand.tabs.includes(named), 'a blank tab the person named is kept');
   consistent();
+});
+
+// ------------------------------------------------------------ tab drops
+
+const onTab = (tabId, after = false) => ({ on: 'tab', tabId, after });
+/** Drop, expecting a refusal or nothing: the brand must be exactly as it was. */
+function assertUnchanged(brand, tabId, target, does) {
+  const before = JSON.stringify(brand);
+  assert.equal(planDrop(brand, tabId, target).does, does, `plan: ${JSON.stringify(target)}`);
+  assert.equal(dropTab(brand, tabId, target), does, JSON.stringify(target));
+  assert.equal(JSON.stringify(brand), before, `nothing changed: ${JSON.stringify(target)}`);
+}
+
+test('dragging a tab onto another, with no group yet: the two side by side, ordered by the half it lands on', () => {
+  const [brand, [a, b, c]] = brandWith('abc');
+  const before = JSON.stringify(brand);
+  assert.deepEqual(planDrop(brand, b, onTab(c)), { does: DROPS.pair, order: [b, c] });
+  assert.equal(JSON.stringify(brand), before, 'planning changes nothing');
+  assert.equal(dropTab(brand, b, onTab(c)), DROPS.pair);
+  assert.deepEqual([brand.panes, brand.focus, brand.solo, brand.activeTabId, groupOf(brand)], [[b, c], 0, null, b, [b, c]],
+    'left half: the dragged tab first, its pane focused');
+  assert.ok(brand.tabs.some((tab) => tab.id === a), 'the tab that was on screen stays a tab, off screen');
+  assertSaves(brand);
+
+  const [right, [x, y]] = brandWith('xy');
+  assert.equal(dropTab(right, x, onTab(y, true)), DROPS.pair);
+  assert.deepEqual([right.panes, right.focus, right.activeTabId], [[y, x], 1, x], 'right half: second');
+  assertSaves(right);
+
+  const [blanked, [p, q]] = brandWith('pq');
+  const blank = addTab(blanked).id;
+  showTab(blanked, blank);
+  dropTab(blanked, p, onTab(q, true));
+  assert.deepEqual(blanked.panes, [q, p]);
+  assert.ok(!blanked.tabs.some((tab) => tab.id === blank), 'a blank tab that was on screen goes, as when any tab replaces it');
+  assertSaves(blanked);
+
+  const [lonely, [s, t]] = brandWith('st');
+  for (const target of [onTab(s), onTab('t_ffffffffff'), { on: 'group' }, { on: 'strip' }, { on: 'pane', index: 1 }, null, { on: 'moon' }]) {
+    assertUnchanged(lonely, s, target, DROPS.none);
+  }
+  assertUnchanged(lonely, 't_ffffffffff', onTab(t), DROPS.none);
+  const [elsewhere] = brandWith('u');
+  assertUnchanged(lonely, s, onTab(elsewhere.tabs[0].id), DROPS.none);
+});
+
+test('dragging a tab onto the group: it joins where it lands, up to four, and the group comes on screen', () => {
+  const [brand, [a, b, c, d, e, f]] = brandWith('abcdef');
+  dropTab(brand, b, onTab(a, true));
+  showTab(brand, e);
+  assert.equal(brand.solo, e);
+  assert.equal(dropTab(brand, c, onTab(b)), DROPS.join);
+  assert.deepEqual([brand.panes, brand.focus, brand.solo, brand.activeTabId], [[a, c, b], 1, null, c],
+    'before the tab under the pointer (left half); the solo tab stops being solo; the new pane is focused');
+  assert.ok(brand.tabs.some((tab) => tab.id === e), 'the solo tab stays a tab');
+  assertSaves(brand);
+  assert.equal(dropTab(brand, d, { on: 'group' }), DROPS.join);
+  assert.deepEqual([brand.panes, brand.focus], [[a, c, b, d], 3], "on the outline's own space: at the end");
+  assertSaves(brand);
+
+  for (const target of [{ on: 'group' }, onTab(a), onTab(d, true)]) assertUnchanged(brand, e, target, DROPS.full);
+  showTab(brand, e);
+  assertUnchanged(brand, e, { on: 'group' }, DROPS.full);
+  assertUnchanged(brand, e, onTab(f), DROPS.none);
+  assertUnchanged(brand, e, { on: 'strip' }, DROPS.none);
+
+  // A layout button made empty panes: joining closes them up, so there are as many panes as tabs.
+  const [roomy, [p, q]] = brandWith('pq');
+  setPaneCount(roomy, 4);
+  const r = addTab(roomy, { url: 'https://r.example/' }).id;
+  assert.equal(dropTab(roomy, r, onTab(p, true)), DROPS.join);
+  assert.deepEqual([roomy.panes, roomy.focus], [[p, r, q], 1]);
+  assertSaves(roomy);
+
+  // The new-tab button in split view makes a blank tab on its own; dragged into the group it stays.
+  const blank = addTab(roomy).id;
+  showTab(roomy, blank);
+  assert.equal(dropTab(roomy, blank, { on: 'group' }), DROPS.join);
+  assert.deepEqual([roomy.panes, roomy.solo, roomy.activeTabId], [[p, r, q, blank], null, blank]);
+  assertSaves(roomy);
+  // A blank solo tab that another tab's joining takes off screen goes.
+  const [other, [x, y, z]] = brandWith('xyz');
+  dropTab(other, y, onTab(x, true));
+  const stray = addTab(other).id;
+  showTab(other, stray);
+  dropTab(other, z, { on: 'group' });
+  assert.deepEqual(other.panes, [x, y, z]);
+  assert.ok(!other.tabs.some((tab) => tab.id === stray));
+  assertSaves(other);
+});
+
+test('dragging a tab inside the group moves it there; dropping it where it is changes nothing', () => {
+  const [brand, [a, b, c, d, e]] = brandWith('abcde');
+  setPaneCount(brand, 4);
+  setSplit(brand, { x: 0.3, y: 0.7 });
+  assert.equal(dropTab(brand, a, onTab(c, true)), DROPS.move);
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[b, c, a, d], 2, a], 'the panes reorder, its pane focused');
+  assert.equal(dropTab(brand, d, onTab(b)), DROPS.move);
+  assert.deepEqual(brand.panes, [d, b, c, a]);
+  assert.deepEqual([brand.splitX, brand.splitY], [0.3, 0.7], 'the dividers stay');
+  assertSaves(brand);
+  for (const target of [onTab(d), onTab(d, true), onTab(b), { on: 'pane', index: 0 }]) assertUnchanged(brand, d, target, DROPS.none);
+  assertUnchanged(brand, a, { on: 'group' }, DROPS.none);
+  assertUnchanged(brand, a, onTab(c, true), DROPS.none);
+
+  showTab(brand, e);
+  assert.equal(dropTab(brand, a, onTab(d)), DROPS.move);
+  assert.deepEqual([brand.panes, brand.solo, brand.activeTabId], [[a, d, b, c], null, a], 'the group comes on screen to show it');
+  assertSaves(brand);
+
+  // Empty panes close up on a move, and stay when nothing moves.
+  const [roomy, [p, q]] = brandWith('pq');
+  setPaneCount(roomy, 3);
+  assertUnchanged(roomy, p, onTab(q), DROPS.none);
+  assert.equal(dropTab(roomy, p, onTab(q, true)), DROPS.move);
+  assert.deepEqual([roomy.panes, roomy.focus], [[q, p], 1]);
+  assertSaves(roomy);
+});
+
+test('dragging a tab out of the group takes its pane with it; a group of one ends', () => {
+  const [brand, [a, b, c, d, e]] = brandWith('abcde');
+  setPaneCount(brand, 4);
+  focusPane(brand, 3);
+  assert.equal(dropTab(brand, d, { on: 'strip' }), DROPS.leave);
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[a, b, c], 2, c], 'four become three; the focus moves left');
+  assert.ok(brand.tabs.some((tab) => tab.id === d), 'it stays a tab');
+  assertSaves(brand);
+  assert.equal(dropTab(brand, a, onTab(e, true)), DROPS.leave, 'a tab outside the group is outside its outline too');
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[b, c], 1, c], 'three become two; the focused tab keeps the focus');
+  assertSaves(brand);
+
+  showTab(brand, e);
+  assert.equal(dropTab(brand, c, { on: 'strip' }), DROPS.leave);
+  assert.deepEqual([brand.panes, brand.solo, brand.activeTabId, groupOf(brand)], [[e], null, e, []],
+    'a group left with one tab ends; the tab on its own in front of it stays on screen');
+  assertSaves(brand);
+  dropTab(brand, b, onTab(e, true));
+  assert.equal(dropTab(brand, e, { on: 'strip' }), DROPS.leave);
+  assert.deepEqual([brand.panes, brand.activeTabId], [[b], b], 'without a solo tab: one pane, the tab that is left');
+  assertSaves(brand);
+
+  const [roomy, [x]] = brandWith('x');
+  setPaneCount(roomy, 2);
+  assert.equal(dropTab(roomy, x, { on: 'strip' }), DROPS.leave);
+  assert.deepEqual(roomy.panes, [x], 'no tab left in the group: one pane with the tab taken out');
+  assertSaves(roomy);
+
+  // A blank tab in the group has nowhere to go outside it: refused. Inside the group it moves.
+  const [blanked, [p, q]] = brandWith('pq');
+  setPaneCount(blanked, 3);
+  const here = addTab(blanked).id;
+  placeTab(blanked, here, 2);
+  assertUnchanged(blanked, here, { on: 'strip' }, DROPS.blank);
+  assert.equal(dropTab(blanked, here, onTab(p)), DROPS.move);
+  assert.deepEqual(blanked.panes, [here, p, q]);
+  assertSaves(blanked);
+});
+
+test('dropping a tab on an empty pane puts it there; a pane with a tab is not a place to drop', () => {
+  const [brand, [x, y]] = brandWith('xy');
+  setPaneCount(brand, 4);
+  const z = addTab(brand, { url: 'https://z.example/' }).id;
+  const w = addTab(brand, { url: 'https://w.example/' }).id;
+  assert.equal(dropTab(brand, z, { on: 'pane', index: 3 }), DROPS.pane);
+  assert.deepEqual([brand.panes, brand.focus, brand.activeTabId], [[x, y, null, z], 3, z]);
+  assertSaves(brand);
+  assert.equal(dropTab(brand, x, { on: 'pane', index: 2 }), DROPS.pane, 'a tab of the group');
+  assert.deepEqual([brand.panes, brand.focus], [[null, y, x, z], 2], 'moves there, leaving its own pane empty');
+  for (const index of [1, 4, -1]) assertUnchanged(brand, w, { on: 'pane', index }, DROPS.none);
+  showTab(brand, w);
+  assert.equal(dropTab(brand, w, { on: 'pane', index: 0 }), DROPS.pane, 'the tab on its own in front of the group');
+  assert.deepEqual([brand.panes, brand.solo, brand.focus], [[w, y, x, z], null, 0]);
+  assertSaves(brand);
+
+  const [empty] = brandWith('');
+  const lone = addTab(empty, { url: 'https://l.example/' }).id;
+  assert.deepEqual(empty.panes, [null]);
+  assert.equal(dropTab(empty, lone, { on: 'pane', index: 0 }), DROPS.pane, 'the one pane, empty');
+  assert.deepEqual(empty.panes, [lone]);
+});
+
+test('a drop target from the interface is rebuilt from its parts, or refused', () => {
+  const id = 't_0123456789';
+  assert.deepEqual(cleanDropTarget({ on: 'tab', tabId: id, after: true, extra: 1 }), { on: 'tab', tabId: id, after: true });
+  assert.deepEqual(cleanDropTarget({ on: 'tab', tabId: id, after: 'yes' }), { on: 'tab', tabId: id, after: false });
+  assert.deepEqual(cleanDropTarget({ on: 'group', index: 9 }), { on: 'group' });
+  assert.deepEqual(cleanDropTarget({ on: 'strip' }), { on: 'strip' });
+  assert.deepEqual(cleanDropTarget({ on: 'pane', index: 3 }), { on: 'pane', index: 3 });
+  for (const bad of [null, undefined, 'tab', 7, [], {}, { on: 'window' }, { on: 'tab' }, { on: 'tab', tabId: '../x' },
+    { on: 'tab', tabId: { id } }, { on: 'tab', tabId: [id] }, { on: 'pane' }, { on: 'pane', index: 4 }, { on: 'pane', index: -1 },
+    { on: 'pane', index: 1.5 }, { on: 'pane', index: '1' }, { on: '__proto__' }, { on: 'constructor' }, { on: ['tab'] }]) {
+    assert.equal(cleanDropTarget(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('what a dragged tab is over: tabs by their halves, the group outline, the strip, an empty pane', () => {
+  // A strip 0-800 wide and 36 high; the group outline 10-330 holds g1 and g2; o1 and o2 follow it.
+  const strip = { left: 0, right: 800, top: 0, bottom: 36 };
+  const tab = (id, left, right, grouped) => ({ id, left, right, grouped });
+  const view = {
+    strip,
+    group: { left: 10, right: 330, top: 6, bottom: 36 },
+    tabs: [tab('g1', 14, 164, true), tab('g2', 166, 316, true), tab('o1', 338, 528, false), tab('o2', 530, 720, false)],
+    panes: [{ index: 0, empty: false, left: 0, right: 400, top: 100, bottom: 600 }, { index: 1, empty: true, left: 405, right: 800, top: 100, bottom: 600 }],
+  };
+  const at = (x, y = 20) => targetAt(view, x, y);
+  assert.deepEqual(at(20), onTab('g1'));
+  assert.deepEqual(at(100), onTab('g1', true));
+  assert.deepEqual(at(165), onTab('g1', true), 'the gap between two tabs: the nearer one');
+  assert.deepEqual(at(325), onTab('g2', true), "the outline's own space at its end: after its last tab");
+  assert.deepEqual(at(12), onTab('g1'), 'and at its start: before its first');
+  assert.deepEqual(at(400), onTab('o1'));
+  assert.deepEqual(at(529), onTab('o1', true));
+  assert.deepEqual(at(723), onTab('o2', true), 'just past a tab outside the group still counts as on it');
+  assert.deepEqual(at(760), { on: 'strip' }, 'the strip with no tab near');
+  assert.deepEqual(at(334), { on: 'strip' }, 'between the outline and the next tab');
+  assert.deepEqual(at(100, -30), onTab('g1', true), 'above the window, over the strip');
+  assert.deepEqual(at(500, 300), { on: 'pane', index: 1 }, 'an empty pane');
+  assert.equal(at(100, 300), null, 'a pane with a page: not a place to drop');
+  assert.equal(at(500, 60), null, 'the toolbar');
+  assert.equal(targetAt({ ...view, strip: { ...strip, left: 60 } }, 30, 20), null, 'left of the strip (the brand rail)');
+  assert.deepEqual(targetAt({ ...view, tabs: view.tabs.filter((t) => !t.grouped) }, 100, 20), { on: 'group' },
+    'a group with only the dragged tab in it: its outline');
+  assert.deepEqual(targetAt({ ...view, group: null, tabs: view.tabs.map((t) => ({ ...t, grouped: false })) }, 100, 20),
+    onTab('g1', true), 'no group: every tab is a tab outside it');
 });
 
 // --------------------------------------------------------------- markdown

@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('fanout', {
   tabAct: call('tab:act'),
   renameTab: call('tab:rename'),
   tabMenu: call('tab:menu'),
+  planDrop: call('tab:plan-drop'),
+  dropTab: call('tab:drop'),
 
   listFiles: call('files:list'),
   readFile: call('files:read'),

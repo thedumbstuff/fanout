@@ -158,7 +158,7 @@ button { cursor: default; }
 
 #main { grid-area: main; display: grid; grid-template-rows: 36px 40px minmax(0, 1fr); min-width: 0; }
 
-#tabstrip { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; min-width: 0; }
+#tabstrip { position: relative; display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; min-width: 0; }
 #tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 
 .tab {
@@ -201,6 +201,44 @@ button { cursor: default; }
 .tab:hover .tab-close, .tab.is-active .tab-close { opacity: 0.7; }
 .tab-close:hover { background: var(--hover); opacity: 1; }
 .tab-rename { width: 100%; height: 22px; padding: 0 4px; border: 1px solid var(--pink); border-radius: 3px; background: var(--bg); outline: none; }
+
+/* Dragging a tab (tabdrag.js). The tab stays where it was, faded: picked up
+   from there. A line marks where it will sit; the outline says the group is
+   the place to drop, or that it is full; a label under the strip says what
+   letting go does. Nothing moves on its own: no animation. */
+body.is-dragging-tab, body.is-dragging-tab * { cursor: grabbing !important; }
+body.is-dragging-tab.is-drop-refused, body.is-dragging-tab.is-drop-refused * { cursor: not-allowed !important; }
+body.is-dragging-tab .tab:hover { background: none; }
+body.is-dragging-tab .tab.is-active:hover { background: var(--surface); }
+.tab.is-lifted { opacity: 0.4; outline: 1.5px dashed var(--muted); outline-offset: -2px; }
+.tab.is-drop-target { box-shadow: inset 0 0 0 2px var(--brand); background: color-mix(in srgb, var(--brand) 16%, transparent); color: var(--text); }
+#tab-group.is-drop-zone { background: color-mix(in srgb, var(--brand) 22%, transparent); }
+#tab-group.is-drop-target { border-style: solid; background: color-mix(in srgb, var(--brand) 30%, transparent); }
+#tab-group.is-refused { border-color: var(--muted); border-style: dashed; background: repeating-linear-gradient(135deg, transparent 0 6px, var(--hover) 6px 9px); }
+#tab-group.is-refused .tab:not(.is-lifted) { opacity: 0.6; }
+.drop-marker { position: absolute; z-index: 2; width: 3px; border-radius: 2px; background: var(--text); pointer-events: none; }
+.tab-ghost {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.tab-ghost-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.tab-ghost-does { flex: none; color: var(--muted); }
+.tab-ghost-does:empty { display: none; }
+.tab-ghost.is-refused { border-color: var(--muted); }
+.tab-ghost.is-refused .tab-ghost-does { color: var(--text); }
 
 .favicon { width: 16px; height: 16px; flex: none; border-radius: 3px; }
 .favicon-letter { display: grid; place-items: center; background: var(--line); font-size: 10px; font-weight: 700; }
@@ -285,6 +323,8 @@ button { cursor: default; }
 .pane-back { flex: none; margin-left: auto; height: 18px; padding: 0 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); font-size: 11.5px; font-weight: 600; }
 .pane-back:hover { border-color: var(--text); }
 .pane-body { flex: 1; display: grid; place-items: center; min-height: 0; overflow: auto; padding: 28px; }
+/* An empty pane under a dragged tab: no page covers it, so it can say it is the place. */
+.pane.is-drop-target .pane-body { outline: 2px dashed var(--text); outline-offset: -12px; background: var(--select); }
 #page:not([data-count='1']) .page-note h1 { font-size: 20px; }
 #page:not([data-count='1']) .presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 

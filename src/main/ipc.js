@@ -6,7 +6,7 @@ import { clipboard, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import { listDir, readText } from './files.js';
 import { popupBrandMenu, popupFileMenu, popupTabMenu } from './menus.js';
-import { cleanSettings, createBrand, findBrand, MAX_PANES, setPaneCount, updateBrand } from './model.js';
+import { cleanDropTarget, cleanSettings, createBrand, findBrand, MAX_PANES, setPaneCount, updateBrand } from './model.js';
 import { resolveInside } from './pathjail.js';
 import { toUrl } from './urls.js';
 
@@ -117,6 +117,11 @@ export function registerIpc(ctx) {
   });
   handle('tab:rename', (tabId, name) => tabs.rename(tabId, name));
   handle('tab:menu', (tabId) => popupTabMenu(ctx, tabId));
+  // A tab dragged in the tab strip. The target is rebuilt from its parts
+  // (cleanDropTarget), and the model checks the tab and the target belong to
+  // the brand on screen and that the drop is allowed.
+  handle('tab:plan-drop', (tabId, target) => tabs.planDrop(String(tabId), cleanDropTarget(target)));
+  handle('tab:drop', (tabId, target) => tabs.drop(String(tabId), cleanDropTarget(target)));
 
   // ------------------------------------------------------------------ files
   handle('files:list', (brandId, rel = '') => files(() => listDir(folderOf(brandId), String(rel))));

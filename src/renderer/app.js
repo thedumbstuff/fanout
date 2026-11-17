@@ -5,6 +5,7 @@
 import { openBrandDialog, openNotesDialog, openSettingsDialog, updateMessage } from './dialogs.js';
 import { h, icon, initials, inkOn, reconcile, renameText } from './dom.js';
 import { FilePanel } from './files.js';
+import { TabDrag } from './tabdrag.js';
 
 const api = window.fanout;
 const $ = (id) => document.getElementById(id);
@@ -144,19 +145,22 @@ function renderTabs() {
   // The group: the tabs side by side in the panes, in pane order (left to
   // right, top to bottom), outlined in the brand's colour; the other tabs
   // follow it. While one of those is shown on its own the group keeps its
-  // outline, dashed: it is waiting, one click away.
+  // outline, dashed: it is waiting, one click away. Tabs are dragged into it
+  // and out of it (tabdrag.js).
   const together = (brand?.group ?? []).map((id) => tabs.find((tab) => tab.id === id)).filter(Boolean);
   const waiting = Boolean(brand?.solo);
   const group = $('tab-group');
   group.hidden = !together.length;
   group.classList.toggle('is-waiting', waiting);
+  const drag = 'Drag a tab here to add it (four at most), or drag one of these out to take it out.';
   group.title = waiting
-    ? `These ${together.length} pages are side by side. Click one to show them again.`
-    : `These ${together.length} pages are on screen together`;
-  if (brand) group.style.setProperty('--brand', brand.color);
+    ? `These ${together.length} pages are side by side. Click one to show them again. ${drag}`
+    : `These ${together.length} pages are on screen together. ${drag}`;
+  if (brand) $('tabstrip').style.setProperty('--brand', brand.color);
   reconcile(group, together, draw);
   reconcile($('tab-rest'), tabs.filter((tab) => !together.includes(tab)), draw);
   $('new-tab').disabled = !brand;
+  tabDrag.paint(); // a drag going on: show it again on the elements just drawn
 }
 
 function tabElement(tab, selected, onScreen) {
@@ -350,6 +354,7 @@ function renderPanes() {
     // The two dividers stay in place so that a drag survives a redraw.
     for (const old of page.querySelectorAll('.pane')) old.remove();
     page.prepend(...tabs.map((tab, index) => paneElement(brand, tab, index, tabs.length)));
+    tabDrag.paint();
   }
   reportBounds();
 }
@@ -391,11 +396,12 @@ function paneNote(kind, brand, tab, index) {
         button('Add your first brand', addBrand),
       ];
     case 'empty':
-      // Picking a tab no longer fills a pane of the group (it shows the tab on
-      // its own), so the way in is the tab menu, or a new tab made for this pane.
+      // Picking a tab does not fill a pane of the group (it shows the tab on
+      // its own), so the way in is dragging a tab here (no page covers an
+      // empty pane, so it can show it is the place), or a new tab made for it.
       return brand.panes.length > 1 ? [
         h('h1', {}, 'Nothing here yet.'),
-        h('p', {}, 'To show a tab here, right-click it above and choose "Put in the group". Or start a new one here.'),
+        h('p', {}, 'Drag a tab here from the tab strip above to show it in this pane. Or start a new one here.'),
         button('Open a new tab here', () => newTab(index)),
       ] : [
         h('h1', {}, 'Nothing here yet.'),
@@ -452,7 +458,8 @@ function renderLayouts() {
     button.disabled = !brand;
     button.classList.toggle('is-on', Boolean(brand) && count === brand.screen.length);
     button.classList.toggle('is-waiting', count === waiting);
-    button.title = count === waiting ? `${name}: back to the group` : name;
+    button.title = count === waiting ? `${name}: back to the group`
+      : count === 2 && !brand?.group.length ? `${name}. Or drag a tab onto another tab.` : name;
     button.ariaLabel = button.title;
   }
 }
@@ -560,6 +567,7 @@ function wireLayout() {
 // -------------------------------------------------------------------- main
 
 const panel = new FilePanel({ api, note, activeTab });
+const tabDrag = new TabDrag({ api, brand: activeBrand, note, renaming: () => renamingTabId !== null });
 
 function render() {
   applyLayout();
