@@ -139,6 +139,35 @@ bytes, `current/latest.yml` offers 0.2.0 with the SHA-512 of `dist/latest.yml`, 
 among them). Not seen yet: an installed fanout updating itself from the live feed (that needs a
 second release), and macOS or Linux.
 
+**The second release, 0.3.0, was published on 2026-11-17** (the feed's `releaseDate`
+2026-11-17T08:59:03Z), with the owner's go-ahead. `node tools/release.mjs publish --yes` uploaded
+`fanout-setup-0.3.0.exe` (107.7 MB, 7 parts) and its `.blockmap` and ended with "published 0.3.0
+for windows". It is the build of 2026-11-17 16:45 from commit 5c85246, not rebuilt after it was
+tried, and byte for byte the copy installed by hand on the owner's PC. Seen on the live site the
+same day: `current/latest.yml` offers 0.3.0 at `../0.3.0/fanout-setup-0.3.0.exe`, size 112,906,159,
+with the SHA-512 of `dist/latest.yml` and the changelog's 0.3.0 section as its notes;
+`release.json` lists Windows 0.3.0 (SHA-256 615242b76d7b...); both blockmaps answer
+(`0.3.0/fanout-setup-0.3.0.exe.blockmap`, 120,420 bytes, and `0.2.0/fanout-setup-0.2.0.exe.blockmap`,
+120,452 bytes); `check_download.py` passed 22 of 22.
+
+What a 0.2.0 does with it, seen the same day. electron-updater 6.8.11 (fanout's `node_modules`) ran
+in a scratch Electron app, never fanout, so nothing was installed: its own folder with a
+`package.json` of version 0.2.0, a `dev-app-update.yml` naming the live feed and its own
+`updaterCacheDirName`, its own user data, and that cache folder seeded the way an install leaves
+it (the 0.2.0 installer as `installer.exe`, no cached blockmap). It fetched `current/latest.yml`,
+found 0.3.0 and its notes (1,148 characters), and fetched both blockmaps (200 each). It found 50
+changed blocks ("Full: 110,259.92 KB, To download: 978.77 KB (1%)") and sent one request for the
+installer with six byte ranges, which Cloudflare answered with 206 `multipart/byteranges` from its
+cache. It received 1,002,256 bytes and took the rest from the old installer; no request asked for
+the whole file. `update-downloaded` fired (the updater's SHA-512 check passed), about 3 seconds
+after the check began, and the file, 112,906,159 bytes, hashed separately, has the feed's SHA-512
+and `release.json`'s SHA-256.
+
+So what is proved is the updater library, as a 0.2.0, against the live feed, up to a downloaded and
+checked installer. Not seen yet: a real installed fanout 0.2.0 doing it, the install-and-restart
+step from a live download (that step was seen on 2026-11-12 with a local feed, below), macOS and
+Linux.
+
 ## Testing an update on one PC (done 2026-11-12)
 
 ```
