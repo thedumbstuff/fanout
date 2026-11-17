@@ -34,8 +34,10 @@
 </p>
 
 <p align="center">
-  No download yet: for now the Windows installer is built from the source (<a href="#build-an-installer">below</a>).
-  Downloads on <a href="https://thedumbstuff.page/">thedumbstuff.page</a> are coming. macOS and Linux are untested.
+  <b><a href="https://thedumbstuff.page/downloads/fanout/current/fanout-setup.exe">Download for Windows</a></b>
+  (Windows 10 and 11, 64-bit) from <a href="https://thedumbstuff.page/fanout/">thedumbstuff.page</a>; it updates itself.
+  The installer is not code signed yet, so Windows SmartScreen warns before it runs (More info, then Run anyway; the page lets you rehearse it).
+  macOS and Linux are untested: build them from the source (<a href="#build-an-installer">below</a>).
 </p>
 
 <p align="center">
@@ -87,7 +89,7 @@ and the posted marks you set.
   graphics can decode them. A file it cannot show says so and offers to open it in your
   usual app.
 - **A posted tracker.** Tick which file has gone where; hide what is posted everywhere.
-- **It updates itself**, once downloads are on thedumbstuff.page: new versions download
+- **It updates itself**: new versions download
   in the background and install when you restart or close it. (On macOS, until fanout
   is signed, it says a new version is out and opens the download page.)
 - **Tabs you are not using go to sleep** and give their memory back: after 20 minutes
